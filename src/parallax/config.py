@@ -40,8 +40,8 @@ class HttpConfig(ConfigModel):
     max_connections_per_host: int = Field(default=2, ge=1)
     max_response_bytes: int = Field(default=2 * 1024 * 1024, ge=1024)
     follow_redirects: bool = True
-    max_connect_attempts: int = Field(default=2, ge=1)
-    connect_retry_backoff_seconds: float = Field(default=0.5, ge=0)
+    max_attempts: int = Field(default=2, ge=1)
+    retry_backoff_seconds: float = Field(default=0.5, ge=0)
 
 
 class SchedulerConfig(ConfigModel):

@@ -70,6 +70,7 @@ from parallax.adapters.hk.am730 import Am730NewsAdapter
 from parallax.adapters.hk.hk01 import Hk01LatestAdapter
 from parallax.adapters.hk.hkej import HkejInstantAdapter
 from parallax.adapters.hk.hket import HketRssAdapter
+from parallax.adapters.hk.mingpao import MingpaoRssAdapter
 from parallax.adapters.hk.now_news import NowNewsAdapter
 from parallax.adapters.hk.oncc import OnccNewsAdapter
 from parallax.adapters.hk.thestandard import TheStandardNewsAdapter
@@ -603,6 +604,7 @@ def test_rss_adapter_parses_atom_feed(fixtures_dir: Path):
     assert first.external_id == "tag:www.producthunt.com,2005:Post/1250484"
     assert first.url == "https://www.producthunt.com/products/twigg"
     assert first.published_at == datetime(2026, 9, 14, 16, 29, 15, tzinfo=UTC)
+    assert first.metrics["updated_at"] == "2026-09-17T06:53:59-07:00"
     assert [candidate.position for candidate in batch.candidates] == [1, 2, 3]
 
 
@@ -1380,7 +1382,17 @@ def test_fastbull_news_adapter_parses_listing(fixtures_dir: Path):
     assert first.external_id == "4386613_1"
     assert first.published_at == datetime(2026, 9, 17, 1, 44, 48, 912000, tzinfo=UTC)
     assert first.raw_published_at is not None
+    assert [candidate.external_id for candidate in batch.candidates] == [
+        "4386613_1",
+        "4386586_1",
+        "4386572_1",
+    ]
     assert [candidate.position for candidate in batch.candidates] == [1, 2, 3]
+    assert all("/cn/newsdetail/" not in candidate.url for candidate in batch.candidates)
+    assert all(
+        candidate.title != "盈亏比高为什么仍会亏损？胜率、期望值与仓位计算"
+        for candidate in batch.candidates
+    )
 
 
 def test_fastbull_news_adapter_rejects_page_without_items():
@@ -2850,6 +2862,59 @@ def test_hket_rss_adapter_rejects_empty_feeds():
             source,
             (response_for(source, payload),),
         )
+
+
+def test_mingpao_rss_adapter_builds_request():
+    source = _source("mingpao_rss", "https://news.mingpao.com/rss/ins/all.xml")
+
+    request = MingpaoRssAdapter().build_request(source)
+
+    assert request.method == "GET"
+    assert request.url == source.url
+    assert "rss+xml" in request.headers["Accept"]
+
+
+def test_mingpao_rss_adapter_strips_attribute_fragments(fixtures_dir: Path):
+    source = _source("mingpao_rss", "https://news.mingpao.com/rss/ins/all.xml")
+    payload = (fixtures_dir / "mingpao" / "feed.xml").read_bytes()
+
+    batch = MingpaoRssAdapter().parse(source, response_for(source, payload))
+
+    assert_batch_contract(batch)
+    assert len(batch.candidates) == 3
+    assert [candidate.position for candidate in batch.candidates] == [1, 2, 3]
+    first = batch.candidates[0]
+    assert first.title == "死有對証｜「御用奸人」陳少邦10年冇演過好人 親揭入行遺憾"
+    assert first.url == (
+        "https://ol.mingpao.com/ldy/showbiz/latest/20260917/1789651170428/"
+        "%e6%ad%bb%e6%9c%89%e5%b0%8d%e8%a8%bc-%e3%80%8c%e5%be%a1%e7%94%a8"
+        "%e5%a5%b8%e4%ba%ba%e3%80%8d%e9%99%b3%e5%b0%91%e9%82%a610%e5%b9%b4"
+        "%e5%86%87%e6%bc%94%e9%81%8e%e5%a5%bd%e4%ba%ba-%e8%a6%aa%e6%8f%ad"
+        "%e5%85%a5%e8%a1%8c%e9%81%ba%e6%86%be"
+    )
+    assert first.external_id == first.url
+    assert first.published_at == datetime(2026, 9, 17, 13, 19, 25, tzinfo=UTC)
+    assert all('"' not in candidate.url for candidate in batch.candidates)
+    assert all(
+        candidate.external_id is None or '"' not in candidate.external_id
+        for candidate in batch.candidates
+    )
+
+
+def test_mingpao_rss_adapter_accepts_empty_item_list():
+    source = _source("mingpao_rss", "https://news.mingpao.com/rss/ins/all.xml")
+    payload = b'<rss version="2.0"><channel><title>empty</title></channel></rss>'
+
+    batch = MingpaoRssAdapter().parse(source, response_for(source, payload))
+
+    assert batch.candidates == ()
+
+
+def test_mingpao_rss_adapter_rejects_malformed_feed():
+    source = _source("mingpao_rss", "https://news.mingpao.com/rss/ins/all.xml")
+
+    with pytest.raises(ValueError, match="Invalid Ming Pao feed"):
+        MingpaoRssAdapter().parse(source, response_for(source, b"<rss><channel>"))
 
 
 def test_now_news_adapter_builds_request():

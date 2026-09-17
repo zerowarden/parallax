@@ -14,6 +14,18 @@ from parallax.identity import identity_key
 
 LOGGER = logging.getLogger(__name__)
 
+_ILLEGAL_URL_CHARACTERS = frozenset(' "<>\\^`{|}')
+
+
+def _has_illegal_url_characters(url: str) -> bool:
+    return any(
+        character.isspace()
+        or character in _ILLEGAL_URL_CHARACTERS
+        or ord(character) < 0x20
+        or ord(character) == 0x7F
+        for character in url
+    )
+
 
 class BatchValidationError(RuntimeError):
     pass
@@ -84,6 +96,9 @@ class BatchValidator:
             return "empty_title"
         if len(title) > self._config.max_title_length:
             return "title_too_long"
+
+        if _has_illegal_url_characters(candidate.url):
+            return "invalid_url"
 
         try:
             split = urlsplit(candidate.url.strip())

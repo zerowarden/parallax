@@ -52,3 +52,32 @@ def test_validator_allows_configured_empty_batch():
 
     assert result.candidates == ()
     assert result.rejected_count == 0
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        'https://example.com/story" target="blank',
+        "https://example.com/story with space",
+        "https://example.com/story\nnext",
+        "https://example.com/story\x00",
+        "https://example.com/<story>",
+    ],
+)
+def test_validator_rejects_urls_with_illegal_characters(url: str):
+    validator = BatchValidator(ValidationConfig(allow_empty_batches=True))
+    batch = ParsedBatch(
+        candidates=(
+            HeadlineCandidate(
+                title="Headline",
+                url=url,
+                external_id="1",
+                position=1,
+            ),
+        )
+    )
+
+    result = validator.validate("fixture", batch)
+
+    assert result.candidates == ()
+    assert result.rejected_count == 1

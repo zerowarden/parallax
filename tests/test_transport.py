@@ -262,6 +262,71 @@ def test_transport_follows_allowlisted_cross_authority_redirect() -> None:
     ]
 
 
+def test_transport_follows_allowlisted_downgrade_with_upstream_cookie() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.host == "example.test":
+            return httpx.Response(
+                301,
+                headers={
+                    "Location": "http://publisher.test/final",
+                    "Set-Cookie": "affinity=upstream; Path=/",
+                },
+            )
+        return httpx.Response(200, content=b"ok")
+
+    transport = _mock_transport(handler)
+    source = _source("https://example.test/start")
+    source.redirect = RedirectPolicyConfig(
+        allowed_hosts=("publisher.test",),
+        allow_https_downgrade=True,
+    )
+    try:
+        response = transport.request(
+            RequestSpec(method="GET", url=source.url),
+            source,
+            StreamState(source_id=source.id),
+        )
+    finally:
+        transport.close()
+
+    assert response.status_code == 200
+    assert [request.url.host for request in requests] == [
+        "example.test",
+        "publisher.test",
+    ]
+    assert "affinity=upstream" not in requests[1].headers.get("cookie", "")
+
+
+def test_transport_does_not_reuse_upstream_cookies_across_requests() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(
+            200,
+            content=b"ok",
+            headers={"Set-Cookie": "session=1; Path=/"},
+        )
+
+    transport = _mock_transport(handler)
+    source = _source("https://example.test/feed")
+    try:
+        for _ in range(2):
+            transport.request(
+                RequestSpec(method="GET", url=source.url),
+                source,
+                StreamState(source_id=source.id),
+            )
+    finally:
+        transport.close()
+
+    assert len(requests) == 2
+    assert "session=1" not in requests[1].headers.get("cookie", "")
+
+
 def test_transport_rejects_allowlisted_redirect_with_sensitive_header() -> None:
     requests: list[httpx.Request] = []
 
@@ -361,7 +426,7 @@ def test_transport_retries_one_idempotent_connect_failure(
     monkeypatch.setattr("parallax.transport.time.sleep", delays.append)
     transport = _mock_transport(
         handler,
-        HttpConfig(max_connect_attempts=2, connect_retry_backoff_seconds=0.25),
+        HttpConfig(max_attempts=2, retry_backoff_seconds=0.25),
     )
     source = _source("https://example.test/start")
     try:
@@ -376,6 +441,105 @@ def test_transport_retries_one_idempotent_connect_failure(
     assert response.status_code == 200
     assert attempts == 2
     assert delays == [0.25]
+
+
+class _ReadTimeoutStream(httpx.SyncByteStream):
+    def __iter__(self) -> Iterator[bytes]:
+        yield b"partial"
+        raise httpx.ReadTimeout("read timed out")
+
+    def close(self) -> None:
+        pass
+
+
+def test_transport_retries_one_idempotent_read_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    attempts = 0
+    delays: list[float] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise httpx.ReadTimeout("temporary", request=request)
+        return httpx.Response(200, content=b"ok")
+
+    monkeypatch.setattr("parallax.transport.time.sleep", delays.append)
+    transport = _mock_transport(
+        handler,
+        HttpConfig(max_attempts=2, retry_backoff_seconds=0.25),
+    )
+    source = _source("https://example.test/start")
+    try:
+        response = transport.request(
+            RequestSpec(method="GET", url=source.url),
+            source,
+            StreamState(source_id=source.id),
+        )
+    finally:
+        transport.close()
+
+    assert response.status_code == 200
+    assert attempts == 2
+    assert delays == [0.25]
+
+
+def test_transport_retries_one_idempotent_body_read_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    attempts = 0
+    delays: list[float] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            return httpx.Response(200, stream=_ReadTimeoutStream())
+        return httpx.Response(200, content=b"ok")
+
+    monkeypatch.setattr("parallax.transport.time.sleep", delays.append)
+    transport = _mock_transport(
+        handler,
+        HttpConfig(max_attempts=2, retry_backoff_seconds=0.25),
+    )
+    source = _source("https://example.test/start")
+    try:
+        response = transport.request(
+            RequestSpec(method="GET", url=source.url),
+            source,
+            StreamState(source_id=source.id),
+        )
+    finally:
+        transport.close()
+
+    assert response.content == b"ok"
+    assert attempts == 2
+    assert delays == [0.25]
+
+
+@pytest.mark.parametrize("method", ["POST", "PUT"])
+def test_transport_does_not_retry_non_idempotent_read_timeout(method: str) -> None:
+    attempts = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        raise httpx.ReadTimeout("temporary", request=request)
+
+    transport = _mock_transport(handler)
+    source = _source("https://example.test/start")
+    try:
+        with pytest.raises(httpx.ReadTimeout):
+            transport.request(
+                RequestSpec(method=method, url=source.url),
+                source,
+                StreamState(source_id=source.id),
+            )
+    finally:
+        transport.close()
+
+    assert attempts == 1
 
 
 @pytest.mark.parametrize("method", ["POST", "PUT"])

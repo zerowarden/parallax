@@ -261,6 +261,18 @@ class Storage:
                     """,
                     (source.id,),
                 )
+            if sources:
+                placeholders = ", ".join("?" for _ in sources)
+                cursor = self._connection.execute(
+                    f"""
+                    UPDATE sources SET enabled = 0, updated_at = ?
+                    WHERE enabled = 1
+                      AND source_id NOT IN ({placeholders})
+                    """,
+                    (now, *(source.id for source in sources)),
+                )
+                if cursor.rowcount > 0:
+                    LOGGER.info("operation=source_disable count=%s", cursor.rowcount)
 
     def get_stream_state(self, source_id: str) -> StreamState:
         row = self._connection.execute(
@@ -551,12 +563,16 @@ class Storage:
         self,
         limit_per_source: int | None = None,
         source_id: str | None = None,
+        *,
+        enabled_only: bool = True,
     ) -> list[HeadlineRow]:
         params: list[object] = []
         source_filter = ""
         if source_id:
             source_filter = "AND s.source_id = ?"
             params.append(source_id)
+
+        enabled_filter = "AND src.enabled = 1" if enabled_only else ""
 
         limit_filter = ""
         if limit_per_source is not None:
@@ -596,7 +612,7 @@ class Storage:
                 JOIN items i ON i.id = se.item_id
                 JOIN item_versions iv ON iv.id = se.item_version_id
                 JOIN sources src ON src.source_id = s.source_id
-                WHERE 1 = 1 {source_filter}
+                WHERE 1 = 1 {source_filter} {enabled_filter}
             )
             SELECT * FROM ranked
             {limit_filter}

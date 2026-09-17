@@ -99,8 +99,12 @@ def _parse_atom(
         title = _child_text(entry, "title")
         external_id = _child_text(entry, "id") or None
         raw_published = _child_text(entry, "published") or _child_text(entry, "updated")
+        raw_updated = _child_text(entry, "updated")
         published = parse_timestamp(raw_published)
         link = _atom_link(entry)
+        metrics: dict[str, object] = {"stream_kind": source.stream_kind}
+        if raw_updated:
+            metrics["updated_at"] = raw_updated
 
         results.append(
             HeadlineCandidate(
@@ -110,7 +114,7 @@ def _parse_atom(
                 published_at=published,
                 raw_published_at=raw_published or None,
                 position=position,
-                metrics={"stream_kind": source.stream_kind},
+                metrics=metrics,
             )
         )
     return results

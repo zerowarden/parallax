@@ -14,8 +14,8 @@ max_keepalive_connections = 5
 max_connections_per_host = 2
 max_response_bytes = 2097152
 follow_redirects = true
-max_connect_attempts = 2
-connect_retry_backoff_seconds = 0.5
+max_attempts = 2
+retry_backoff_seconds = 0.5
 
 [ingestion]
 max_concurrent_sources = 8
@@ -854,24 +854,8 @@ id = "mingpao-realtime"
 name = "明報-即時全部"
 region = "HK"
 language = "zh-HK"
-adapter = "rss"
+adapter = "mingpao_rss"
 url = "https://news.mingpao.com/rss/ins/all.xml"
-stream_kind = "latest"
-item_kind = "article"
-retrieval_method = "rss"
-enabled = true
-schedule_seconds = 900
-
-[sources.options]
-max_items = 100
-
-[[sources]]
-id = "mingpao-hk"
-name = "明報-即時港聞"
-region = "HK"
-language = "zh-HK"
-adapter = "rss"
-url = "https://news.mingpao.com/rss/ins/s00001.xml"
 stream_kind = "latest"
 item_kind = "article"
 retrieval_method = "rss"
@@ -1299,22 +1283,6 @@ schedule_seconds = 1800
 
 [sources.options]
 max_items = 100
-
-[[sources]]
-id = "hn-top"
-name = "Hacker News-Top"
-region = "GLOBAL"
-language = "en-US"
-adapter = "hackernews_hot"
-url = "https://news.ycombinator.com/"
-stream_kind = "hot"
-item_kind = "post"
-retrieval_method = "unofficial_web_html"
-enabled = true
-schedule_seconds = 1800
-
-[sources.options]
-max_items = 30
 
 [[sources]]
 id = "hn-new"

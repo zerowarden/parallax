@@ -11,6 +11,7 @@ from rich.text import Text
 from parallax.config import SourceConfig
 from parallax.diagnostics import SourceDiagnostic
 from parallax.domain import IngestionSummary, StreamState
+from parallax.feed import HeadlineFeedRow
 from parallax.storage import FetchRunRow, HeadlineRow
 
 
@@ -81,6 +82,32 @@ class Presenter:
                     _literal(row.url),
                 )
             self.console.print(table)
+
+    def feed(self, rows: Iterable[HeadlineFeedRow]) -> None:
+        table = Table(title="Latest headlines", show_header=True)
+        table.add_column("#", width=4, justify="right")
+        table.add_column("Headline", overflow="fold")
+        table.add_column("Published", width=25)
+        table.add_column("Source", overflow="fold")
+        table.add_column("URL", overflow="fold")
+        count = 0
+        for count, row in enumerate(rows, start=1):
+            source = (
+                row.source_name
+                if row.duplicate_count == 0
+                else f"{row.source_name} (+{row.duplicate_count})"
+            )
+            table.add_row(
+                str(count),
+                _literal(row.title),
+                _literal(row.published_at or "unknown"),
+                _literal(source),
+                _literal(row.url),
+            )
+        if count == 0:
+            self.console.print("No stored headlines yet.")
+            return
+        self.console.print(table)
 
     def status(
         self,

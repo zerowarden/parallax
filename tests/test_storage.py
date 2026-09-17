@@ -279,3 +279,99 @@ def test_record_history_stores_items_without_snapshot_or_schedule(
     assert snapshots == []
     assert state.last_success_at is None
     assert {event.event_type for event in changes} == {"item_created"}
+
+
+def test_sync_sources_disables_sources_removed_from_config(tmp_path: Path):
+    storage = Storage(tmp_path / "parallax.db")
+    storage.initialize()
+    retained = _source()
+    removed = SourceConfig(
+        id="removed",
+        name="Removed",
+        region="US",
+        language="en-US",
+        adapter="rss",
+        url="https://example.com/removed.xml",
+    )
+    storage.sync_sources([retained, removed])
+    batch = ValidatedBatch(
+        candidates=(
+            HeadlineCandidate(
+                title="Removed headline",
+                url="https://example.com/removed/1",
+                external_id="removed-1",
+                position=1,
+            ),
+        ),
+        rejected_count=0,
+    )
+    run_id = storage.start_fetch_run(removed.id)
+    storage.record_success(
+        removed,
+        run_id,
+        200,
+        batch,
+        None,
+        None,
+        datetime.now(UTC) + timedelta(minutes=10),
+    )
+
+    storage.sync_sources([retained])
+
+    assert storage.latest_headlines() == []
+    assert storage.latest_headlines(source_id="removed") == []
+    historical = storage.latest_headlines(source_id="removed", enabled_only=False)
+    assert [row.title for row in historical] == ["Removed headline"]
+    with sqlite3.connect(tmp_path / "parallax.db") as connection:
+        enabled = connection.execute(
+            "SELECT enabled FROM sources WHERE source_id = 'removed'"
+        ).fetchone()
+    storage.close()
+
+    assert enabled == (0,)
+
+
+def test_latest_headlines_only_returns_enabled_sources(tmp_path: Path):
+    storage = Storage(tmp_path / "parallax.db")
+    storage.initialize()
+    enabled = _source()
+    disabled = SourceConfig(
+        id="disabled",
+        name="Disabled",
+        region="US",
+        language="en-US",
+        adapter="rss",
+        url="https://example.com/disabled.xml",
+        enabled=False,
+    )
+    storage.sync_sources([enabled, disabled])
+    for source in (enabled, disabled):
+        run_id = storage.start_fetch_run(source.id)
+        storage.record_success(
+            source,
+            run_id,
+            200,
+            ValidatedBatch(
+                candidates=(
+                    HeadlineCandidate(
+                        title=f"{source.id} headline",
+                        url=f"https://example.com/{source.id}",
+                        external_id=source.id,
+                        position=1,
+                    ),
+                ),
+                rejected_count=0,
+            ),
+            None,
+            None,
+            datetime.now(UTC) + timedelta(minutes=10),
+        )
+
+    rows = storage.latest_headlines()
+    enabled_rows = storage.latest_headlines(source_id="disabled")
+    disabled_rows = storage.latest_headlines(source_id="disabled", enabled_only=False)
+    storage.close()
+
+    assert [row.source_id for row in rows] == ["fixture"]
+    assert enabled_rows == []
+    assert [row.source_id for row in disabled_rows] == ["disabled"]

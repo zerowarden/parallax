@@ -63,8 +63,8 @@ NATIVE_SOURCES = {
     "weibo": "weibo_hot",
     "sspai": "sspai_hot",
     "hackernews": "hackernews_hot",
-    "hn-top": "hackernews_hot",
     "hn-new": "hackernews_hot",
+    "mingpao-realtime": "mingpao_rss",
     "kaopu": "kaopu_news",
     "qqvideo-tv-hotsearch": "qqvideo_hot_search",
     "bilibili-hot-video": "bilibili_hot_video",
@@ -84,9 +84,7 @@ EXCLUDED_SOURCE_IDS = frozenset(
     {"36kr-renqi", "inmedia", "tvb-news", "thewitness-latest"}
 )
 
-REQUIRED_DOCUMENTS = (
-    "README.md",
-)
+REQUIRED_DOCUMENTS = ("README.md",)
 
 
 def test_required_documents_exist(project_root: Path):
@@ -101,7 +99,7 @@ def test_release_registry_contains_only_resolvable_streams():
     root = Path(__file__).resolve().parents[1]
     settings = load_settings(root / "config.toml")
 
-    assert len(settings.sources) == 81
+    assert len(settings.sources) == 79
     assert len({source.id for source in settings.sources}) == len(settings.sources)
     assert not ({source.id for source in settings.sources} & EXCLUDED_SOURCE_IDS)
     assert all(source.adapter != "unsupported" for source in settings.sources)
@@ -120,7 +118,7 @@ def test_registry_contains_hong_kong_and_catalog_sources():
     settings = load_settings(root / "config.toml")
     ids = {source.id for source in settings.sources}
 
-    assert "mingpao-hk" in ids
+    assert "mingpao-realtime" in ids
     assert "hk01-latest" in ids
     assert "hkej" in ids
     assert "zhihu" in ids
@@ -143,7 +141,7 @@ def test_native_sources_use_configured_adapters(
 @pytest.mark.parametrize(
     ("source_id", "url", "stream_kind"),
     [
-        ("hn-top", "https://news.ycombinator.com/", "hot"),
+        ("hackernews", "https://news.ycombinator.com/", "hot"),
         ("hn-new", "https://news.ycombinator.com/newest", "latest"),
     ],
 )
@@ -193,8 +191,8 @@ def test_ingestion_and_transport_defaults() -> None:
     assert ingestion.retry_base_seconds == 30
     assert ingestion.retry_max_seconds == 1800
     assert transport.max_connections_per_host == 2
-    assert transport.max_connect_attempts == 2
-    assert transport.connect_retry_backoff_seconds == 0.5
+    assert transport.max_attempts == 2
+    assert transport.retry_backoff_seconds == 0.5
 
 
 @pytest.mark.parametrize(

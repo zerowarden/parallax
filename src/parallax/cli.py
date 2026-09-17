@@ -7,6 +7,7 @@ from typing import Annotated
 
 import typer
 
+from parallax.feed import build_headline_feed
 from parallax.parsing import parse_since
 from parallax.presentation import Presenter
 from parallax.runtime import Runtime
@@ -177,7 +178,10 @@ def show_headlines(
             limit_per_source=limit,
             source_id=source_id,
         )
-        Presenter().headlines(rows)
+        if source_id is None:
+            Presenter().feed(build_headline_feed(rows))
+        else:
+            Presenter().headlines(rows)
 
 
 @app.command("doctor")

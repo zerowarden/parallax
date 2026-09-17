@@ -63,8 +63,10 @@ class FastbullExpressAdapter:
 class FastbullNewsAdapter:
     """Native adapter for the Fastbull news listing.
 
-    Rows are anchors carrying `data-date` (millisecond epoch) descendants; the
-    article URL is used as stable identity.
+    Only the 头条新闻 headline block is observed; the ``.report_list`` research
+    and analysis stream (``/cn/newsdetail/``) is a different surface and is
+    explicitly excluded. Rows are anchors carrying ``data-date`` (millisecond
+    epoch) descendants; the article URL is used as stable identity.
     """
 
     def build_request(self, source: SourceConfig) -> RequestSpec:
@@ -75,7 +77,7 @@ class FastbullNewsAdapter:
 
         max_items = option_int(source, "max_items", 30)
         candidates: list[HeadlineCandidate] = []
-        for row in tree.css(".trending_type"):
+        for row in tree.css(".news-top .trending_type"):
             title_node = row.css_first(".title")
             date_node = row.css_first("[data-date]")
             href = text(row.attributes.get("href"))

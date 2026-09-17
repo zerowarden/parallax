@@ -56,6 +56,7 @@ from parallax.adapters.hk.am730 import Am730NewsAdapter
 from parallax.adapters.hk.hk01 import Hk01LatestAdapter
 from parallax.adapters.hk.hkej import HkejInstantAdapter
 from parallax.adapters.hk.hket import HketRssAdapter
+from parallax.adapters.hk.mingpao import MingpaoRssAdapter
 from parallax.adapters.hk.now_news import NowNewsAdapter
 from parallax.adapters.hk.oncc import OnccNewsAdapter
 from parallax.adapters.hk.thestandard import TheStandardNewsAdapter
@@ -103,6 +104,7 @@ class AdapterRegistry:
             "kaopu_news": KaopuNewsAdapter(),
             "kr36_quick": Kr36QuickAdapter(),
             "kuaishou_hot": KuaishouHotAdapter(),
+            "mingpao_rss": MingpaoRssAdapter(),
             "mktnews_flash": MktNewsFlashAdapter(),
             "now_news": NowNewsAdapter(),
             "nowcoder_hot": NowcoderHotAdapter(),

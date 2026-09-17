@@ -16,6 +16,7 @@ from parallax.domain import HttpResponse, RequestSpec, StreamState
 
 LOGGER = logging.getLogger(__name__)
 MAX_REDIRECTS = 20
+_TRANSIENT_ERRORS = (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeout)
 
 
 class ResponseTooLargeError(RuntimeError):
@@ -76,6 +77,8 @@ class HttpTransport(AbstractContextManager["HttpTransport"]):
         source: SourceConfig,
         state: StreamState,
     ) -> HttpResponse:
+        """Perform the configured request under shared HTTP policy."""
+        self._client.cookies.clear()
         headers = dict(spec.headers)
         headers.update(source.headers)
         params = dict(spec.params)
@@ -100,8 +103,15 @@ class HttpTransport(AbstractContextManager["HttpTransport"]):
             content=spec.content,
         )
         redirect_count = 0
+        attempt = 0
         while True:
-            response, host_semaphore = self._send_with_connect_retry(request, source)
+            attempt += 1
+            try:
+                response, host_semaphore = self._send_once(request)
+            except _TRANSIENT_ERRORS as exc:
+                if not self._retry_transient(request, source, attempt, exc):
+                    raise
+                continue
             try:
                 next_request = response.next_request
                 if self.config.follow_redirects and next_request is not None:
@@ -110,6 +120,11 @@ class HttpTransport(AbstractContextManager["HttpTransport"]):
                             f"Exceeded {MAX_REDIRECTS} redirects",
                             request=request,
                         )
+                    if not _same_safe_authority(request.url, next_request.url):
+                        # Upstream cookies (for example load-balancer affinity)
+                        # are not credentials of ours and must not follow a
+                        # redirect to a different authority.
+                        _discard_upstream_cookies(next_request)
                     if not self._is_safe_redirect(request, next_request, source):
                         raise UnsafeRedirectError(
                             "Refusing unsafe redirect: "
@@ -125,9 +140,15 @@ class HttpTransport(AbstractContextManager["HttpTransport"]):
                     )
                     request = next_request
                     redirect_count += 1
+                    attempt = 0
                     continue
 
-                content = self._read_bounded(response)
+                try:
+                    content = self._read_bounded(response)
+                except httpx.ReadTimeout as exc:
+                    if not self._retry_transient(request, source, attempt, exc):
+                        raise
+                    continue
                 final_url = str(response.url)
                 LOGGER.info(
                     "operation=http_response source_id=%s status=%s bytes=%s url=%s",
@@ -181,32 +202,6 @@ class HttpTransport(AbstractContextManager["HttpTransport"]):
             chunks.append(chunk)
         return b"".join(chunks)
 
-    def _send_with_connect_retry(
-        self,
-        request: httpx.Request,
-        source: SourceConfig,
-    ) -> tuple[httpx.Response, threading.Semaphore]:
-        attempts = self.config.max_connect_attempts
-        for attempt in range(1, attempts + 1):
-            try:
-                return self._send_once(request)
-            except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
-                if not self._can_retry_connect(request, attempt):
-                    raise
-                delay = self.config.connect_retry_backoff_seconds
-                LOGGER.warning(
-                    "operation=http_retry source_id=%s url=%s error_type=%s "
-                    "attempt=%s max_attempts=%s delay=%s",
-                    source.id,
-                    _safe_url(str(request.url)),
-                    type(exc).__name__,
-                    attempt,
-                    attempts,
-                    delay,
-                )
-                time.sleep(delay)
-        raise AssertionError("Connection retry loop exhausted without raising")
-
     def _send_once(
         self,
         request: httpx.Request,
@@ -230,10 +225,33 @@ class HttpTransport(AbstractContextManager["HttpTransport"]):
                 threading.Semaphore(self.config.max_connections_per_host),
             )
 
-    def _can_retry_connect(self, request: httpx.Request, attempt: int) -> bool:
+    def _retry_transient(
+        self,
+        request: httpx.Request,
+        source: SourceConfig,
+        attempt: int,
+        error: httpx.TransportError,
+    ) -> bool:
+        if not self._can_retry(request, attempt):
+            return False
+        delay = self.config.retry_backoff_seconds
+        LOGGER.warning(
+            "operation=http_retry source_id=%s url=%s error_type=%s "
+            "attempt=%s max_attempts=%s delay=%s",
+            source.id,
+            _safe_url(str(request.url)),
+            type(error).__name__,
+            attempt,
+            self.config.max_attempts,
+            delay,
+        )
+        time.sleep(delay)
+        return True
+
+    def _can_retry(self, request: httpx.Request, attempt: int) -> bool:
         return (
             request.method.upper() in {"GET", "HEAD"}
-            and attempt < self.config.max_connect_attempts
+            and attempt < self.config.max_attempts
         )
 
     @staticmethod
@@ -311,6 +329,10 @@ def _effective_port(url: httpx.URL) -> int | None:
     if url.port is not None:
         return url.port
     return {"http": 80, "https": 443}.get(url.scheme)
+
+
+def _discard_upstream_cookies(request: httpx.Request) -> None:
+    request.headers.pop("cookie", None)
 
 
 def _has_sensitive_request_headers(headers: httpx.Headers) -> bool:
