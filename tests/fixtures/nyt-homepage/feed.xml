@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+<channel>
+<title><![CDATA[NYT Home Page]]></title>
+<link>https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml</link>
+<item>
+<title><![CDATA[Who Will Win the Midterms? Republicans Are Reeling.]]></title>
+<link><![CDATA[https://www.nytimes.com/2026/09/17/us/politics/midterms-map-republicans-democrats.html]]></link>
+<guid><![CDATA[https://www.nytimes.com/2026/09/17/us/politics/midterms-map-republicans-democrats.html]]></guid>
+<pubDate>Thu, 17 Sep 2026 12:23:24 +0000</pubDate>
+</item>
+<item>
+<title><![CDATA[Stung by Voting Rights Decision, Many Black Southerners Plan for November]]></title>
+<link><![CDATA[https://www.nytimes.com/2026/09/17/us/politics/black-voters-democratic-candidates-south.html]]></link>
+<guid><![CDATA[https://www.nytimes.com/2026/09/17/us/politics/black-voters-democratic-candidates-south.html]]></guid>
+<pubDate>Thu, 17 Sep 2026 14:32:16 +0000</pubDate>
+</item>
+<item>
+<title><![CDATA[Jewish Leaders in Michigan Urge Support for El-Sayed’s Senate Bid]]></title>
+<link><![CDATA[https://www.nytimes.com/2026/09/17/us/politics/el-sayed-michigan-senate-jewish-petition.html]]></link>
+<guid><![CDATA[https://www.nytimes.com/2026/09/17/us/politics/el-sayed-michigan-senate-jewish-petition.html]]></guid>
+<pubDate>Thu, 17 Sep 2026 09:03:57 +0000</pubDate>
+</item>
+</channel>
+</rss>

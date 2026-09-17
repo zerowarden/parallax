@@ -99,7 +99,7 @@ def test_release_registry_contains_only_resolvable_streams():
     root = Path(__file__).resolve().parents[1]
     settings = load_settings(root / "config.toml")
 
-    assert len(settings.sources) == 79
+    assert len(settings.sources) == 91
     assert len({source.id for source in settings.sources}) == len(settings.sources)
     assert not ({source.id for source in settings.sources} & EXCLUDED_SOURCE_IDS)
     assert all(source.adapter != "unsupported" for source in settings.sources)

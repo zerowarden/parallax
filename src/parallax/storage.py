@@ -31,6 +31,7 @@ class HeadlineRow:
     position: int | None
     title: str
     url: str
+    canonical_url: str
     published_at: str | None
     first_seen_at: str
 
@@ -595,6 +596,7 @@ class Storage:
                     se.position,
                     iv.title,
                     i.original_url AS url,
+                    i.canonical_url,
                     i.published_at,
                     i.first_seen_at,
                     ROW_NUMBER() OVER (
@@ -627,6 +629,7 @@ class Storage:
                 position=row["position"],
                 title=row["title"],
                 url=row["url"],
+                canonical_url=row["canonical_url"],
                 published_at=row["published_at"],
                 first_seen_at=row["first_seen_at"],
             )

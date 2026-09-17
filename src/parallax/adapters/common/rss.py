@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from xml.etree import ElementTree
 
 from parallax.adapters.common.options import option_int
@@ -27,13 +28,28 @@ class RssAdapter:
         )
 
     def parse(self, source: SourceConfig, response: HttpResponse) -> ParsedBatch:
-        candidates = parse_feed_candidates(
-            response.content,
-            source,
-            label="XML feed",
-        )
-        max_items = option_int(source, "max_items", 100)
-        return ParsedBatch(candidates=tuple(candidates[:max_items]))
+        return parse_feed_batch(response.content, source)
+
+
+def parse_feed_batch(
+    content: bytes,
+    source: SourceConfig,
+    *,
+    label: str = "XML feed",
+    transform: Callable[[HeadlineCandidate], HeadlineCandidate] | None = None,
+) -> ParsedBatch:
+    """Parse one feed document and cap it at the source's ``max_items``.
+
+    ``transform`` lets a source-specific adapter normalize candidates (for
+    example repairing malformed link text) without reimplementing the shared
+    parse-and-cap pipeline. Multi-feed adapters that merge several surfaces
+    keep their own combination logic.
+    """
+    candidates = parse_feed_candidates(content, source, label=label)
+    if transform is not None:
+        candidates = [transform(candidate) for candidate in candidates]
+    max_items = option_int(source, "max_items", 100)
+    return ParsedBatch(candidates=tuple(candidates[:max_items]))
 
 
 def parse_feed_candidates(

@@ -15,6 +15,7 @@ def test_headline_content_is_rendered_as_literal_text() -> None:
         position=1,
         title="Malformed [/bold] and [red]literal[/red]",
         url="https://example.test/[story]",
+        canonical_url="https://example.test/[story]",
         published_at=None,
         first_seen_at="2026-09-17T00:00:00+00:00",
     )

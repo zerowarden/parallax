@@ -608,6 +608,151 @@ def test_rss_adapter_parses_atom_feed(fixtures_dir: Path):
     assert [candidate.position for candidate in batch.candidates] == [1, 2, 3]
 
 
+_DAILYMAIL_NEWS_LINK = (
+    "https://www.dailymail.com/news/article-16136593/Headteacher-20-000-year-"
+    "London-private-school-pleads-guilty-injuring-injuring-cyclist.html?"
+    "ns_mchannel=rss&ns_campaign=1490&ito=1490"
+)
+
+
+@pytest.mark.parametrize(
+    (
+        "fixture",
+        "feed_url",
+        "title",
+        "link",
+        "external_id",
+        "published_at",
+    ),
+    [
+        (
+            "pbs-headlines/feed.xml",
+            "https://www.pbs.org/newshour/feeds/rss/headlines",
+            "WATCH LIVE: Senate expected to hold vote on College Sports Act",
+            "https://www.pbs.org/newshour/politics/watch-live-senate-expected-to-hold-vote-on-college-sports-act",
+            "https://www.pbs.org/newshour/politics/watch-live-senate-expected-to-hold-vote-on-college-sports-act",
+            "2026-09-17T14:23:49+00:00",
+        ),
+        (
+            "bbc-top/feed.xml",
+            "https://feeds.bbci.co.uk/news/rss.xml",
+            "Remains found after wildfire identified as mother-of-three "
+            "missing since 2019",
+            "https://www.bbc.co.uk/news/articles/c9e8e21x3vp4o?at_medium=RSS&at_campaign=rss",
+            "https://www.bbc.co.uk/news/articles/c9e8e21x3vp4o#1",
+            "2026-09-17T14:36:51+00:00",
+        ),
+        (
+            "ft-home/feed.xml",
+            "https://www.ft.com/rss/home/international",
+            "Trump fails to bend the Fed to his will",
+            "https://www.ft.com/content/fb8e1037-8c48-49d2-809e-950472bcbae5?syn-25a6b1a6=1",
+            "fb8e1037-8c48-49d2-809e-950472bcbae5",
+            "2026-09-17T04:00:31+00:00",
+        ),
+        (
+            "dailymail-news/feed.xml",
+            "https://www.dailymail.co.uk/news/index.rss",
+            "Headteacher at £20,000-a-year top London private school "
+            "pleads guilty to injuring cyclist while driving",
+            _DAILYMAIL_NEWS_LINK,
+            _DAILYMAIL_NEWS_LINK,
+            "2026-09-17T14:50:15+00:00",
+        ),
+        (
+            "nyt-homepage/feed.xml",
+            "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml",
+            "Who Will Win the Midterms? Republicans Are Reeling.",
+            "https://www.nytimes.com/2026/09/17/us/politics/midterms-map-republicans-democrats.html",
+            "https://www.nytimes.com/2026/09/17/us/politics/midterms-map-republicans-democrats.html",
+            "2026-09-17T12:23:24+00:00",
+        ),
+        (
+            "npr-top/feed.xml",
+            "https://feeds.npr.org/1001/rss.xml",
+            "Greetings from Beijing, where baozi are worth the wait in line",
+            "https://www.npr.org/2026/09/17/g-s1-142416/china-beijing-buns-baozi",
+            "https://www.npr.org/2026/09/17/g-s1-142416/china-beijing-buns-baozi",
+            "2026-09-17T13:59:17+00:00",
+        ),
+        (
+            "aljazeera-all/feed.xml",
+            "https://www.aljazeera.com/xml/rss/all.xml",
+            "Ghalibaf’s maths missile at Trump decoded: Is Iran fixing "
+            "US interest rates?",
+            "https://www.aljazeera.com/news/2026/9/17/ghalibafs-maths-missile-at-trump-decoded-is-iran-fixing-us-interest-rates?traffic_source=rss",
+            "https://www.aljazeera.com/?t=1789633752",
+            "2026-09-17T14:10:41+00:00",
+        ),
+        (
+            "dw-all/feed.xml",
+            "https://rss.dw.com/xml/rss-en-all",
+            "Germany cuts development aid despite growing crises",
+            "https://www.dw.com/en/germany-cuts-development-aid-despite-growing-crises/a-79257532?maca=en-rss-en-all-1573-xml-mrss",
+            "79257532",
+            "2026-09-17T14:36:00+00:00",
+        ),
+        (
+            "sky-home/feed.xml",
+            "https://feeds.skynews.com/feeds/rss/home.xml",
+            "Father of Noah Woods, 3, pays tribute to son after body "
+            "found following huge search",
+            "https://news.sky.com/story/noah-woods-fundraiser-launched-after-body-found-in-search-for-missing-boy-raises-more-than-29000-13588898",
+            "https://news.sky.com/story/noah-woods-fundraiser-launched-after-body-found-in-search-for-missing-boy-raises-more-than-29000-13588898",
+            "2026-09-17T09:53:00+00:00",
+        ),
+        (
+            "independent-news/feed.xml",
+            "https://www.independent.co.uk/news/rss",
+            "Carney accuses Trump of weaponising trade after president "
+            "condemns ‘laughable’ EU-Canada membership",
+            "https://www.independent.co.uk/news/world/americas/canada-eu-trump-mark-carney-b3051798.html",
+            "b3051798",
+            "2026-09-17T10:33:46+00:00",
+        ),
+        (
+            "economist-finance/feed.xml",
+            "https://www.economist.com/finance-and-economics/rss.xml",
+            "GDP per person no longer grows like it used to",
+            "https://www.economist.com/finance-and-economics/2026/09/17/gdp-per-person-no-longer-grows-like-it-used-to",
+            "dc617d38-4e77-43d9-a4c5-4a6ebea55daf",
+            "2026-09-17T10:30:49+00:00",
+        ),
+        (
+            "wsj-world/feed.xml",
+            "https://feeds.content.dowjones.io/public/rss/RSSWorldNews",
+            "Carney Puts His Pivot Away From the U.S. to the Test",
+            "https://www.wsj.com/world/europe/canada-mark-carney-european-union-a515b2a4?mod=rss_worldnews",
+            "WP-WSJ-0003901378",
+            "2026-09-17T14:02:00+00:00",
+        ),
+    ],
+)
+def test_rss_adapter_parses_publisher_feed(
+    fixtures_dir: Path,
+    fixture: str,
+    feed_url: str,
+    title: str,
+    link: str,
+    external_id: str,
+    published_at: str,
+):
+    source = _source("rss", feed_url)
+    payload = (fixtures_dir / fixture).read_bytes()
+
+    batch = RssAdapter().parse(source, response_for(source, payload))
+
+    assert_batch_contract(batch)
+    assert len(batch.candidates) == 3
+    first = batch.candidates[0]
+    assert first.title == title
+    assert first.url == link
+    assert first.external_id == external_id
+    assert first.published_at == datetime.fromisoformat(published_at)
+    assert [candidate.position for candidate in batch.candidates] == [1, 2, 3]
+    assert all(candidate.published_at is not None for candidate in batch.candidates)
+
+
 def test_juejin_adapter_builds_request():
     source = _source(
         "juejin_hot",

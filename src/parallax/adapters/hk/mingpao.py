@@ -2,8 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from parallax.adapters.common.options import option_int
-from parallax.adapters.common.rss import RssAdapter, parse_feed_candidates
+from parallax.adapters.common.rss import RssAdapter, parse_feed_batch
 from parallax.config import SourceConfig
 from parallax.domain import (
     HeadlineCandidate,
@@ -23,17 +22,11 @@ class MingpaoRssAdapter(RssAdapter):
     """
 
     def parse(self, source: SourceConfig, response: HttpResponse) -> ParsedBatch:
-        candidates = parse_feed_candidates(
+        return parse_feed_batch(
             response.content,
             source,
             label="Ming Pao feed",
-        )
-        max_items = option_int(source, "max_items", 100)
-        return ParsedBatch(
-            candidates=tuple(
-                _strip_attribute_fragment(candidate)
-                for candidate in candidates[:max_items]
-            )
+            transform=_strip_attribute_fragment,
         )
 
 

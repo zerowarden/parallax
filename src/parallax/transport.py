@@ -78,7 +78,6 @@ class HttpTransport(AbstractContextManager["HttpTransport"]):
         state: StreamState,
     ) -> HttpResponse:
         """Perform the configured request under shared HTTP policy."""
-        self._client.cookies.clear()
         headers = dict(spec.headers)
         headers.update(source.headers)
         params = dict(spec.params)
@@ -102,6 +101,10 @@ class HttpTransport(AbstractContextManager["HttpTransport"]):
             headers=headers,
             content=spec.content,
         )
+        # The transport never sends browser cookies; drop any cookie the shared
+        # client jar merged in so request policy sees a cookie-free request and
+        # later fetches cannot inherit stale upstream cookies.
+        request.headers.pop("cookie", None)
         redirect_count = 0
         attempt = 0
         while True:

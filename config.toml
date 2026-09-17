@@ -1333,3 +1333,200 @@ schedule_seconds = 900
 
 [sources.options]
 max_items = 50
+
+# --- International publisher RSS sources ----------------------------------
+
+[[sources]]
+id = "pbs-headlines"
+name = "PBS NewsHour-Headlines"
+region = "US"
+language = "en-US"
+adapter = "rss"
+url = "https://www.pbs.org/newshour/feeds/rss/headlines"
+stream_kind = "latest"
+item_kind = "article"
+retrieval_method = "rss"
+enabled = true
+schedule_seconds = 1800
+
+[sources.options]
+max_items = 100
+
+[[sources]]
+id = "bbc-top"
+name = "BBC-Top"
+region = "UK"
+language = "en-US"
+adapter = "rss"
+url = "https://feeds.bbci.co.uk/news/rss.xml"
+stream_kind = "latest"
+item_kind = "article"
+retrieval_method = "rss"
+enabled = true
+schedule_seconds = 1800
+
+[sources.options]
+max_items = 100
+
+[[sources]]
+id = "ft-home"
+name = "Financial Times-Home"
+region = "UK"
+language = "en-US"
+adapter = "rss"
+url = "https://www.ft.com/rss/home/international"
+stream_kind = "latest"
+item_kind = "article"
+retrieval_method = "rss"
+enabled = true
+schedule_seconds = 1800
+
+[sources.options]
+max_items = 100
+
+[[sources]]
+id = "dailymail-news"
+name = "Daily Mail-News"
+region = "UK"
+language = "en-US"
+adapter = "rss"
+url = "https://www.dailymail.co.uk/news/index.rss"
+stream_kind = "latest"
+item_kind = "article"
+retrieval_method = "rss"
+enabled = true
+schedule_seconds = 1800
+
+[sources.options]
+max_items = 100
+
+[sources.redirect]
+allowed_hosts = ["www.dailymail.com"]
+
+[[sources]]
+id = "nyt-homepage"
+name = "The New York Times-Homepage"
+region = "US"
+language = "en-US"
+adapter = "rss"
+url = "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml"
+stream_kind = "latest"
+item_kind = "article"
+retrieval_method = "rss"
+enabled = true
+schedule_seconds = 1800
+
+[sources.options]
+max_items = 100
+
+[[sources]]
+id = "npr-top"
+name = "NPR-Top Stories"
+region = "US"
+language = "en-US"
+adapter = "rss"
+url = "https://feeds.npr.org/1001/rss.xml"
+stream_kind = "latest"
+item_kind = "article"
+retrieval_method = "rss"
+enabled = true
+schedule_seconds = 1800
+
+[sources.options]
+max_items = 100
+
+[[sources]]
+id = "aljazeera-all"
+name = "Al Jazeera-All"
+region = "QA"
+language = "en-US"
+adapter = "rss"
+url = "https://www.aljazeera.com/xml/rss/all.xml"
+stream_kind = "latest"
+item_kind = "article"
+retrieval_method = "rss"
+enabled = true
+schedule_seconds = 1800
+
+[sources.options]
+max_items = 100
+
+[[sources]]
+id = "dw-all"
+name = "DW-All"
+region = "DE"
+language = "en-US"
+adapter = "rss"
+url = "https://rss.dw.com/xml/rss-en-all"
+stream_kind = "latest"
+item_kind = "article"
+retrieval_method = "rss"
+enabled = true
+schedule_seconds = 1800
+
+[sources.options]
+max_items = 100
+
+[[sources]]
+id = "sky-home"
+name = "Sky News-Home"
+region = "UK"
+language = "en-US"
+adapter = "rss"
+url = "https://feeds.skynews.com/feeds/rss/home.xml"
+stream_kind = "latest"
+item_kind = "article"
+retrieval_method = "rss"
+enabled = true
+schedule_seconds = 1800
+
+[sources.options]
+max_items = 100
+
+[[sources]]
+id = "independent-news"
+name = "The Independent-News"
+region = "UK"
+language = "en-US"
+adapter = "rss"
+url = "https://www.independent.co.uk/news/rss"
+stream_kind = "latest"
+item_kind = "article"
+retrieval_method = "rss"
+enabled = true
+schedule_seconds = 1800
+
+[sources.options]
+max_items = 100
+
+[[sources]]
+id = "economist-finance"
+name = "The Economist-Finance"
+region = "UK"
+language = "en-US"
+adapter = "rss"
+url = "https://www.economist.com/finance-and-economics/rss.xml"
+stream_kind = "latest"
+item_kind = "article"
+retrieval_method = "rss"
+enabled = true
+schedule_seconds = 1800
+
+[sources.options]
+max_items = 100
+
+[[sources]]
+id = "wsj-world"
+name = "The Wall Street Journal-World"
+region = "US"
+language = "en-US"
+adapter = "rss"
+url = "https://feeds.content.dowjones.io/public/rss/RSSWorldNews"
+stream_kind = "latest"
+item_kind = "article"
+retrieval_method = "rss"
+enabled = true
+schedule_seconds = 1800
+
+[sources.options]
+max_items = 100

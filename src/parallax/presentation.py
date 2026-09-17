@@ -69,11 +69,7 @@ class Presenter:
             return
 
         for source_name, source_rows in grouped.items():
-            table = Table(title=_literal(source_name), show_header=True)
-            table.add_column("#", width=4, justify="right")
-            table.add_column("Headline", overflow="fold")
-            table.add_column("Published", width=25)
-            table.add_column("URL", overflow="fold")
+            table = self._headline_table(source_name, with_source=False)
             for row in source_rows:
                 table.add_row(
                     str(row.position or "-"),
@@ -84,12 +80,7 @@ class Presenter:
             self.console.print(table)
 
     def feed(self, rows: Iterable[HeadlineFeedRow]) -> None:
-        table = Table(title="Latest headlines", show_header=True)
-        table.add_column("#", width=4, justify="right")
-        table.add_column("Headline", overflow="fold")
-        table.add_column("Published", width=25)
-        table.add_column("Source", overflow="fold")
-        table.add_column("URL", overflow="fold")
+        table = self._headline_table("Latest headlines", with_source=True)
         count = 0
         for count, row in enumerate(rows, start=1):
             source = (
@@ -108,6 +99,16 @@ class Presenter:
             self.console.print("No stored headlines yet.")
             return
         self.console.print(table)
+
+    def _headline_table(self, title: str, *, with_source: bool) -> Table:
+        table = Table(title=_literal(title), show_header=True)
+        table.add_column("#", width=4, justify="right")
+        table.add_column("Headline", overflow="fold")
+        table.add_column("Published", width=25)
+        if with_source:
+            table.add_column("Source", overflow="fold")
+        table.add_column("URL", overflow="fold")
+        return table
 
     def status(
         self,

@@ -9,6 +9,7 @@ def _row(
     title: str,
     url: str,
     *,
+    canonical_url: str | None = None,
     published_at: str | None = "2026-09-17T10:00:00+00:00",
     first_seen_at: str = "2026-09-17T10:05:00+00:00",
     position: int | None = 1,
@@ -19,6 +20,7 @@ def _row(
         position=position,
         title=title,
         url=url,
+        canonical_url=canonical_url if canonical_url is not None else url,
         published_at=published_at,
         first_seen_at=first_seen_at,
     )
@@ -30,12 +32,14 @@ def test_feed_collapses_same_canonical_url_across_sources() -> None:
             "Alpha",
             "Story one",
             "https://example.com/story#comments",
+            canonical_url="https://example.com/story",
             published_at="2026-09-17T11:00:00+00:00",
         ),
         _row(
             "Beta",
             "Story one (updated)",
             "https://EXAMPLE.com/story",
+            canonical_url="https://example.com/story",
             published_at="2026-09-17T09:00:00+00:00",
         ),
     ]
@@ -45,6 +49,29 @@ def test_feed_collapses_same_canonical_url_across_sources() -> None:
     assert len(feed) == 1
     assert feed[0].source_name == "Alpha"
     assert feed[0].title == "Story one"
+    assert feed[0].duplicate_count == 1
+
+
+def test_feed_deduplicates_on_stored_canonical_url() -> None:
+    rows = [
+        _row(
+            "Alpha",
+            "First wording",
+            "https://example.com/story?utm_source=alpha",
+            canonical_url="https://example.com/story",
+        ),
+        _row(
+            "Beta",
+            "Second wording",
+            "https://example.com/story?utm_source=beta",
+            canonical_url="https://example.com/story",
+            published_at="2026-09-17T09:00:00+00:00",
+        ),
+    ]
+
+    feed = build_headline_feed(rows)
+
+    assert len(feed) == 1
     assert feed[0].duplicate_count == 1
 
 
@@ -82,6 +109,51 @@ def test_feed_keeps_distinct_stories_separate() -> None:
     assert len(feed) == 2
     assert {row.title for row in feed} == {"Story one", "Story two"}
     assert all(row.duplicate_count == 0 for row in feed)
+
+
+def test_feed_collapses_transitive_title_and_url_chain() -> None:
+    rows = [
+        _row(
+            "Alpha",
+            "Shared title",
+            "https://alpha.example/a",
+            published_at="2026-09-17T11:00:00+00:00",
+        ),
+        _row(
+            "Beta",
+            "Shared title",
+            "https://beta.example/b",
+            published_at="2026-09-17T10:00:00+00:00",
+        ),
+        _row(
+            "Gamma",
+            "Edited title",
+            "https://beta.example/b",
+            published_at="2026-09-17T09:00:00+00:00",
+        ),
+    ]
+
+    feed = build_headline_feed(rows)
+
+    assert len(feed) == 1
+    assert feed[0].source_name == "Alpha"
+    assert feed[0].title == "Shared title"
+    assert feed[0].duplicate_count == 2
+
+
+def test_feed_keeps_disjoint_merge_groups_separate() -> None:
+    rows = [
+        _row("Alpha", "Shared", "https://alpha.example/a"),
+        _row("Beta", "Shared", "https://beta.example/b"),
+        _row("Gamma", "Other", "https://gamma.example/c"),
+        _row("Delta", "Other", "https://delta.example/d"),
+    ]
+
+    feed = build_headline_feed(rows)
+
+    assert len(feed) == 2
+    assert {row.title for row in feed} == {"Shared", "Other"}
+    assert all(row.duplicate_count == 1 for row in feed)
 
 
 def test_feed_orders_by_publication_then_first_seen() -> None:

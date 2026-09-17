@@ -75,6 +75,18 @@ NATIVE_SOURCE_IDS = (
     "scmp-directory",
     "hkfp-latest",
     "thestandard-latest",
+    "pbs-headlines",
+    "bbc-top",
+    "ft-home",
+    "dailymail-news",
+    "nyt-homepage",
+    "npr-top",
+    "aljazeera-all",
+    "dw-all",
+    "sky-home",
+    "independent-news",
+    "economist-finance",
+    "wsj-world",
 )
 
 REDIRECT_SOURCE_IDS = (
