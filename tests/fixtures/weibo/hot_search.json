@@ -1,0 +1,73 @@
+{
+  "ok": 1,
+  "data": {
+    "realtime": [
+      {
+        "word": "如果你出生于1992年至2003年之间",
+        "word_scheme": "#如果你出生于1992年至2003年之间#",
+        "num": 1644492,
+        "realpos": 1,
+        "rank": 0,
+        "flag": 1,
+        "label_name": "新",
+        "topic_flag": 1,
+        "is_ad": null,
+        "topic_ad": null
+      },
+      {
+        "word": "亚运会 离谱",
+        "word_scheme": "亚运会 离谱",
+        "num": 1066050,
+        "realpos": 2,
+        "rank": 1,
+        "flag": 1,
+        "label_name": "新",
+        "topic_flag": 0,
+        "is_ad": null,
+        "topic_ad": null
+      },
+      {
+        "word": "从运河里看懂中华民族的硬核浪漫",
+        "word_scheme": "#从运河里看懂中华民族的硬核浪漫#",
+        "num": 743629,
+        "realpos": 3,
+        "rank": 2,
+        "flag": 1,
+        "label_name": "新",
+        "topic_flag": 1,
+        "is_ad": null,
+        "topic_ad": null
+      },
+      {
+        "word": "举手式睡姿是身体在求救",
+        "word_scheme": "举手式睡姿是身体在求救",
+        "num": 667936,
+        "realpos": 4,
+        "rank": 3,
+        "flag": 2,
+        "label_name": "热",
+        "topic_flag": 0,
+        "is_ad": null,
+        "topic_ad": null
+      },
+      {
+        "word": "还是哥伦比亚会玩",
+        "word_scheme": null,
+        "num": 644142,
+        "realpos": null,
+        "rank": 5,
+        "flag": null,
+        "label_name": null,
+        "topic_flag": 1,
+        "is_ad": 1,
+        "topic_ad": 1
+      }
+    ],
+    "hotgov": {
+      "word": "#总书记这样嘱托人民公安#",
+      "name": "#总书记这样嘱托人民公安#",
+      "pos": 1,
+      "stime": 1789610343
+    }
+  }
+}

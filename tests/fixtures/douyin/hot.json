@@ -1,0 +1,24 @@
+{
+  "data": {
+    "word_list": [
+      {
+        "sentence_id": "2653116",
+        "word": "美联储宣布加息25个基点",
+        "event_time": 1789599892,
+        "hot_value": 11442242
+      },
+      {
+        "sentence_id": "2652023",
+        "word": "原相机的风吹到了创大",
+        "event_time": 1789533338,
+        "hot_value": 11199266
+      },
+      {
+        "sentence_id": "2653261",
+        "word": "平陆运河究竟有多“夯”",
+        "event_time": 1789610569,
+        "hot_value": 10784327
+      }
+    ]
+  }
+}

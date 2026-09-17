@@ -1,0 +1,35 @@
+{
+  "hits": [
+    {
+      "objectID": "49738210",
+      "title": "Nolan Bushnell (Atari, Co-Founder) Career Interview (2006) [video]",
+      "url": "https://www.youtube.com/watch?v=wpR9JziuCsQ",
+      "author": "anotherhue",
+      "points": 1,
+      "num_comments": 0,
+      "created_at": "2026-09-17T09:10:32Z",
+      "created_at_i": 1789636232
+    },
+    {
+      "objectID": "49738204",
+      "title": "The DeepMind Institute",
+      "url": "https://institute.deepmind.com/essays/introducing-the-deepmind-institute/",
+      "author": "cosmoharrigan",
+      "points": 1,
+      "num_comments": 0,
+      "created_at": "2026-09-17T09:09:38Z",
+      "created_at_i": 1789636178
+    },
+    {
+      "objectID": "49738198",
+      "title": "Deriving neural scaling laws from the statistics of natural language",
+      "url": "https://arxiv.org/abs/2602.07488",
+      "author": "sharma-arjun",
+      "points": 1,
+      "num_comments": 0,
+      "created_at": "2026-09-17T09:08:19Z",
+      "created_at_i": 1789636099
+    }
+  ],
+  "nbHits": 7383
+}

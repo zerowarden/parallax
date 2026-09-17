@@ -1,0 +1,19 @@
+{
+  "resultCode": 1,
+  "data": {
+    "hotNews": [
+      {
+        "contId": "1001",
+        "name": "澎湃测试标题一",
+        "pubTimeLong": "1789540210000",
+        "praiseTimes": 123
+      },
+      {
+        "contId": "1002",
+        "name": "澎湃测试标题二",
+        "pubTimeLong": "1789539000000",
+        "praiseTimes": 99
+      }
+    ]
+  }
+}

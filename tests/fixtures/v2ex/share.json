@@ -1,0 +1,27 @@
+{
+  "version": "https://jsonfeed.org/version/1",
+  "title": "分享发现",
+  "items": [
+    {
+      "id": "https://www.v2ex.com/t/1242700",
+      "url": "https://www.v2ex.com/t/1242700",
+      "title": "体感上觉得 antigravity 的推理速度好像是和 5h 内余量成反比的",
+      "date_published": "2026-09-17T06:26:27+00:00",
+      "date_modified": null
+    },
+    {
+      "id": "https://www.v2ex.com/t/1242696",
+      "url": "https://www.v2ex.com/t/1242696",
+      "title": "做了个开源项目推荐站，接受开发者自荐：给你们的 side project 一个被看见的地方",
+      "date_published": "2026-09-17T06:17:03+00:00",
+      "date_modified": null
+    },
+    {
+      "id": "https://www.v2ex.com/t/1242672",
+      "url": "https://www.v2ex.com/t/1242672",
+      "title": "vibe coding 实用工具",
+      "date_published": "2026-09-17T04:47:41+00:00",
+      "date_modified": null
+    }
+  ]
+}

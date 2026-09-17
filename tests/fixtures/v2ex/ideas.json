@@ -1,0 +1,27 @@
+{
+  "version": "https://jsonfeed.org/version/1",
+  "title": "奇思妙想",
+  "items": [
+    {
+      "id": "https://www.v2ex.com/t/1242605",
+      "url": "https://www.v2ex.com/t/1242605",
+      "title": "啥时候模型厂商出个看广告送 Token 啊",
+      "date_published": "2026-09-17T02:08:04+00:00",
+      "date_modified": null
+    },
+    {
+      "id": "https://www.v2ex.com/t/1242488",
+      "url": "https://www.v2ex.com/t/1242488",
+      "title": "灵机一动：一个让用户免费用 AI，但是厂商又能赚到钱的方案",
+      "date_published": "2026-09-16T09:35:13+00:00",
+      "date_modified": null
+    },
+    {
+      "id": "https://www.v2ex.com/t/1242403",
+      "url": "https://www.v2ex.com/t/1242403",
+      "title": "仔细想想，罗永浩不就是东亚版 Kanye 吗？",
+      "date_published": "2026-09-16T05:23:22+00:00",
+      "date_modified": null
+    }
+  ]
+}

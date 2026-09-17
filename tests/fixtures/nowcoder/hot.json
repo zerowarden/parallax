@@ -1,0 +1,37 @@
+{
+  "success": true,
+  "code": 0,
+  "msg": "OK",
+  "data": {
+    "result": [
+      {
+        "type": 74,
+        "id": "2911155",
+        "uuid": "230b23931569461e9775faeb97aef65b",
+        "title": "一个应届生对大厂招聘者的忠告",
+        "hotValueFromDolphin": 19893
+      },
+      {
+        "type": 74,
+        "id": "2910718",
+        "uuid": "27ecaad483364bdaa0c64bc88c4248ca",
+        "title": "字节前端-泛抖音一面面经",
+        "hotValueFromDolphin": 13865
+      },
+      {
+        "type": 74,
+        "id": "2910312",
+        "uuid": "1f5363d0a36d43d8b19b00ed11cbcc8b",
+        "title": "9.15 招银网络科技线下二面凉",
+        "hotValueFromDolphin": 6183
+      },
+      {
+        "type": 0,
+        "id": "929731481189044224",
+        "uuid": "cf0e7885da1e4c65a3d5403d2e18461d",
+        "title": "字节 Agent 秋招一面",
+        "hotValueFromDolphin": 5827
+      }
+    ]
+  }
+}

@@ -1,0 +1,80 @@
+[project]
+name = "parallax"
+version = "0.1.1"
+description = "Extensible headline collector with durable SQLite history"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "httpx>=0.28,<1",
+  "pydantic>=2.10,<3",
+  "rich>=13.9,<15",
+  "selectolax>=0.4.11",
+  "typer>=0.15,<1",
+]
+
+[project.scripts]
+parallax = "parallax.cli:app"
+
+[dependency-groups]
+dev = [
+  "black>=25.1,<27",
+  "mypy>=1.15,<2",
+  "pytest>=8,<10",
+  "pytest-cov>=6,<8",
+  "ruff>=0.11,<1",
+  "pre-commit>=4,<5",
+  "pyright>=1.1.414",
+]
+
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/parallax"]
+
+[tool.black]
+line-length = 88
+target-version = ["py312"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+packages = ["parallax"]
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+
+[tool.pyright]
+pythonVersion = "3.12"
+typeCheckingMode = "standard"
+include = ["src", "tests"]
+reportMissingParameterType = "error"
+reportDeprecated = "error"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q -m 'not live'"
+markers = [
+  "live: performs real upstream HTTP requests; excluded unless selected",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["parallax"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false

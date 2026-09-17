@@ -1,0 +1,33 @@
+{
+  "code": 0,
+  "message": "OK",
+  "ttl": 1,
+  "data": {
+    "list": [
+      {
+        "aid": "117280105045764",
+        "bvid": "BV1cSec6tEux",
+        "title": "折叠还是直板？iPhone 18 Pro&Duo深度视频",
+        "author": "影视飓风",
+        "play": 3017156,
+        "pts": 0
+      },
+      {
+        "aid": "117274367299854",
+        "bvid": "BV1sjen6QEQ7",
+        "title": "《原神》薇斯纳角色PV——「『风』行迷踪」",
+        "author": "原神",
+        "play": 1894024,
+        "pts": 0
+      },
+      {
+        "aid": "117278393767486",
+        "bvid": "BV1WAec6fE5N",
+        "title": "《鸣潮》动画短片 | 寻心",
+        "author": "鸣潮",
+        "play": 2878978,
+        "pts": 0
+      }
+    ]
+  }
+}

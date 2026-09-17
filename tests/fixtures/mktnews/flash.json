@@ -1,0 +1,32 @@
+{
+  "status": 200,
+  "data": [
+    {
+      "id": "01a0ae06-1b5b-7118-85d3-84c7787342ca",
+      "time": "2026-09-17T06:20:30.000Z",
+      "important": 0,
+      "data": {
+        "title": null,
+        "content": "Australia's S&P/ASX 200 index closed up 24.80 points (+0.29%) at 8,721.30 on Sept 17 (Thursday)."
+      }
+    },
+    {
+      "id": "01a0ae02-ead9-7118-85d3-7f410f8de417",
+      "time": "2026-09-17T06:17:01.000Z",
+      "important": 1,
+      "data": {
+        "title": null,
+        "content": "Europe-route container shipping index front-month contract rose 4.00% intraday to 2,132.0 points."
+      }
+    },
+    {
+      "id": "01a0adff-cadc-7118-85d3-71c5c5ecef09",
+      "time": "2026-09-17T06:13:36.000Z",
+      "important": 0,
+      "data": {
+        "title": null,
+        "content": "France’s minister for European affairs said the United States and any other country have no right to veto relations between the EU and Canada."
+      }
+    }
+  ]
+}

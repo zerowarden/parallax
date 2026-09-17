@@ -1,0 +1,21 @@
+{
+  "items": [
+    {
+      "type": 1,
+      "data": {
+        "articleId": 123456,
+        "title": "香港01測試標題",
+        "publishTime": 1789540210,
+        "tags": [{"tagName": "香港"}],
+        "authors": [{"publishName": "記者甲"}]
+      }
+    },
+    {
+      "type": 2,
+      "data": {
+        "articleId": 999999,
+        "title": "應被略過"
+      }
+    }
+  ]
+}

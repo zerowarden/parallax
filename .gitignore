@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+.pytest_cache/
+*.py[cod]
+data/*.db
+data/*.db-*
+data/*.log
+.coverage
+.ruff
+.agentq.toml
+AGENTS.md

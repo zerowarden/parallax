@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Fixture News</title>
+    <item>
+      <title>First headline</title>
+      <link>https://example.com/story/1</link>
+      <guid>story-1</guid>
+      <pubDate>Tue, 15 Sep 2026 10:30:00 GMT</pubDate>
+    </item>
+    <item>
+      <title>Second headline</title>
+      <link>https://example.com/story/2?ref=feed</link>
+      <guid>story-2</guid>
+      <pubDate>Tue, 15 Sep 2026 11:00:00 GMT</pubDate>
+    </item>
+  </channel>
+</rss>

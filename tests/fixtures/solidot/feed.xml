@@ -1,0 +1,22 @@
+<?xml version='1.0' encoding='utf-8'?>
+<rss version="2.0">
+  <channel>
+    <title>奇客Solidot–传递最新科技情报</title>
+    <link>https://www.solidot.org</link>
+    <item>
+      <title>FAST 发现极短周期、最轻双中子星系统</title>
+      <link>https://www.solidot.org/story?sid=85396</link>
+      <pubDate>Wed, 16 Sep 2026 19:09:25 +0800</pubDate>
+    </item>
+    <item>
+      <title>Mistral 与 Mozilla 合作推出 Firefox Smart Window</title>
+      <link>https://www.solidot.org/story?sid=85395</link>
+      <pubDate>Wed, 16 Sep 2026 18:53:58 +0800</pubDate>
+    </item>
+    <item>
+      <title>Mozilla 报告称中国开放权重模型与美国前沿模型仅相差 4.4 个月</title>
+      <link>https://www.solidot.org/story?sid=85394</link>
+      <pubDate>Wed, 16 Sep 2026 18:30:50 +0800</pubDate>
+    </item>
+  </channel>
+</rss>

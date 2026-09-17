@@ -1,0 +1,64 @@
+{
+  "code": 20000,
+  "message": "OK",
+  "data": {
+    "items": [
+      {
+        "resource_type": "live",
+        "resource": {
+          "id": 3166700,
+          "title": "美国会授权特朗普可对购买俄石油产品的国家加征关税，外交部回应",
+          "content_short": null,
+          "display_time": 1789630051,
+          "uri": "https://wallstreetcn.com/livenews/3166700",
+          "type": "live"
+        }
+      },
+      {
+        "resource_type": "article",
+        "resource": {
+          "id": 3781977,
+          "title": "华为汪涛：昇腾960超节点正式发布！ 新款AI芯片，将提前推出",
+          "content_short": "华为轮值董事长汪涛在华为全联接大会2026宣布：昇腾960DT提前三个季度至2027年Q1发布，性能翻番；业界首个量产NPO产品Hi-ONE亮相，单引擎传输容量达7.2T，替代4.8万颗光模块、降低550千瓦功耗；昇腾950超节点已规模商用超1000套。",
+          "display_time": 1789630016,
+          "uri": "https://wallstreetcn.com/articles/3781977",
+          "type": null
+        }
+      },
+      {
+        "resource_type": "ad",
+        "resource": {
+          "id": 17913,
+          "title": null,
+          "content_short": null,
+          "display_time": null,
+          "uri": null,
+          "type": null
+        }
+      },
+      {
+        "resource_type": "article",
+        "resource": {
+          "id": 3781978,
+          "title": "月之暗面Kimi发布金融行业解决方案",
+          "content_short": "更多消息，持续更新中",
+          "display_time": 1789630006,
+          "uri": "https://wallstreetcn.com/articles/3781978",
+          "type": null
+        }
+      },
+      {
+        "resource_type": "live",
+        "resource": {
+          "id": 41959865,
+          "title": "AI有人类史上最大的“潜在市场”",
+          "content_short": null,
+          "display_time": 1789628605,
+          "uri": "https://wallstreetcn.com/charts/41959865",
+          "type": "flash"
+        }
+      }
+    ],
+    "next_cursor": "eyJTbG90T2Zmc2V0IjowLCJUb3RhbENvdW50IjozNywiQXJ0aWNsZUxlIjoxNzg5NjExODc0fQ=="
+  }
+}

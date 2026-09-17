@@ -1,0 +1,39 @@
+{
+  "ret": 0,
+  "msg": "ok",
+  "data": {
+    "tabs": [
+      {
+        "id": "",
+        "name": "综合",
+        "articleList": [
+          {
+            "id": "20260916A09GK500",
+            "title": "美众议院通过决议限制特朗普战争权力，7名共和党议员跳反",
+            "publish_time": "2026-09-16 21:35:26",
+            "link_info": {
+              "url": "https://view.inews.qq.com/a/20260916A09GK500"
+            }
+          },
+          {
+            "id": "20260916A0CSZE00",
+            "title": "国产撕开缺口，工业机器人四大“老钱家族”的壁垒生变",
+            "publish_time": "2026-09-16 20:30:41",
+            "link_info": {
+              "url": "https://view.inews.qq.com/a/20260916A0CSZE00"
+            }
+          },
+          {
+            "id": "20260916A0CL3400",
+            "title": "AI办公，是怎么变成大厂必争入口的",
+            "publish_time": "2026-09-16 20:24:43",
+            "link_info": {
+              "url": "https://view.inews.qq.com/a/20260916A0CL3400"
+            }
+          }
+        ],
+        "article_count": 10
+      }
+    ]
+  }
+}

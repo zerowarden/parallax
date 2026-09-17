@@ -1,0 +1,27 @@
+{
+  "version": "https://jsonfeed.org/version/1",
+  "title": "程序员",
+  "items": [
+    {
+      "id": "https://www.v2ex.com/t/1242707",
+      "url": "https://www.v2ex.com/t/1242707",
+      "title": "最新的模型 Jev 有人用么？速度提升 193.6 倍，价格降低 444.6 倍。",
+      "date_published": "2026-09-17T06:43:34+00:00",
+      "date_modified": "2026-09-17T06:44:07+00:00"
+    },
+    {
+      "id": "https://www.v2ex.com/t/1242699",
+      "url": "https://www.v2ex.com/t/1242699",
+      "title": "公司给报销 100 元买 token,该如何选择呢?必须有正规发票",
+      "date_published": "2026-09-17T06:21:26+00:00",
+      "date_modified": null
+    },
+    {
+      "id": "https://www.v2ex.com/t/1242679",
+      "url": "https://www.v2ex.com/t/1242679",
+      "title": "“马鞍税”，一篇非常有意思的 harness 横比文章",
+      "date_published": "2026-09-17T05:16:26+00:00",
+      "date_modified": "2026-09-17T05:23:01+00:00"
+    }
+  ]
+}

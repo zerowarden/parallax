@@ -1,0 +1,45 @@
+{
+  "data": {
+    "bang_topic": {
+      "module_title": "热议话题",
+      "topic_list": [
+        {
+          "topic_id": 28364580,
+          "topic_name": "草台班子!亚运代表队被困机场",
+          "topic_url": "https://tieba.baidu.com/hottopic/browse/hottopic?topic_id=28364580&amp;topic_name=%E8%8D%89%E5%8F%B0%E7%8F%AD%E5%AD%90%21%E4%BA%9A%E8%BF%90%E4%BB%A3%E8%A1%A8%E9%98%9F%E8%A2%AB%E5%9B%B0%E6%9C%BA%E5%9C%BA",
+          "create_time": 1789610507,
+          "idx_num": 1,
+          "discuss_num": 2970420,
+          "content_num": 0,
+          "tag": 1,
+          "is_video_topic": "0"
+        },
+        {
+          "topic_id": 28364609,
+          "topic_name": "键帽飞出不暂停,Bin哥真佛系",
+          "topic_url": "https://tieba.baidu.com/hottopic/browse/hottopic?topic_id=28364609&amp;topic_name=%E9%94%AE%E5%B8%BD%E9%A3%9E%E5%87%BA%E4%B8%8D%E6%9A%82%E5%81%9C%2CBin%E5%93%A5%E7%9C%9F%E4%BD%9B%E7%B3%BB",
+          "create_time": 1789627310,
+          "idx_num": 2,
+          "discuss_num": 2542314,
+          "content_num": 0,
+          "tag": 2,
+          "is_video_topic": "0"
+        },
+        {
+          "topic_id": 28364551,
+          "topic_name": "勇哥跑路,B站切片全停",
+          "topic_url": "https://tieba.baidu.com/hottopic/browse/hottopic?topic_id=28364551&amp;topic_name=%E5%8B%87%E5%93%A5%E8%B7%91%E8%B7%AF%2CB%E7%AB%99%E5%88%87%E7%89%87%E5%85%A8%E5%81%9C",
+          "create_time": 1789566128,
+          "idx_num": 3,
+          "discuss_num": 2088044,
+          "content_num": 0,
+          "tag": 2,
+          "is_video_topic": "0"
+        }
+      ]
+    },
+    "timestamp": 1789630441973
+  },
+  "errno": 0,
+  "errmsg": "success"
+}

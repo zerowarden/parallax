@@ -1,0 +1,48 @@
+{
+  "code": 0,
+  "message": "OK",
+  "ttl": 1,
+  "data": {
+    "list": [
+      {
+        "aid": 117280105045764,
+        "bvid": "BV1cSec6tEux",
+        "title": "折叠还是直板？iPhone 18 Pro&Duo深度视频",
+        "pubdate": 1789560000,
+        "owner": {
+          "name": "影视飓风"
+        },
+        "stat": {
+          "view": 3267498,
+          "like": 309809
+        }
+      },
+      {
+        "aid": 117279685744430,
+        "bvid": "BV13Xew6LE7T",
+        "title": "《原神》沃雅妮莎角色PV——「心之声」",
+        "pubdate": 1789617600,
+        "owner": {
+          "name": "原神"
+        },
+        "stat": {
+          "view": 649910,
+          "like": 89880
+        }
+      },
+      {
+        "aid": 117284366451683,
+        "bvid": "BV1QJeM6cEpb",
+        "title": "龙蛇有界 | 2026全球冠军赛皮肤终极预告 CG",
+        "pubdate": 1789617707,
+        "owner": {
+          "name": "无畏契约"
+        },
+        "stat": {
+          "view": 609428,
+          "like": 19925
+        }
+      }
+    ]
+  }
+}

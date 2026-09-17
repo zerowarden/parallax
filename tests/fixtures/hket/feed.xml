@@ -1,0 +1,43 @@
+<?xml version='1.0' encoding='utf-8'?>
+<rss version="2.0">
+<channel>
+	<title>香港新聞RSS - 香港經濟日報 hket.com</title>
+	<link>https://www.hket.com/</link>
+	<description>訂閱新聞RSS，獲取最新香港新聞, 時事 - RSS - 香港經濟日報 hket.com</description>
+	<language>zh-TW</language>
+	<copyright>香港經濟日報版權所有©</copyright>
+	<pubDate>Thu, 17 Sep 2026 17:05:45 +0800</pubDate>
+	<docs>https://www.hket.com/rss/hongkong</docs>
+	<webMaster>mktg1@hket.com</webMaster>
+	<category>Hong kong news/Latest news</category>
+<image>
+	<title>香港新聞RSS - 香港經濟日報 hket.com</title>
+	<url>https://static04.hket.com/res/v3/image/seo/001.png</url>
+	<link>https://www.hket.com/</link>
+</image>
+<item>
+	<title>女神配對計劃2｜Oscar自揭一種性格令女神卻步　僅得兩燈面臨淘汰？　Bob肉緊抱抱惹揣測</title>
+	<description>【女神配對計劃2 / 方智弘 / 林盛斌】TVB戀愛真人騷《女神配對計劃2》本周日（9月20日）播出的第三集，由於《女神2》第二集播出後熱爆全城，追求Amber的吳兆麟（Alan）及飛半個地球求與Ju...</description>
+	<link>https://topick.hket.com/article/4195359</link>
+	<guid>https://topick.hket.com/article/4195359</guid>
+	<pubDate>Thu, 17 Sep 2026 15:31:00 +0800</pubDate>
+	<enclosure length="100672" type="image/jpeg" url="https://static04.hket.com/res/v3/image/content/4195000/4195359/OscarBob_300.png" />
+</item>
+<item>
+	<title>小型賽車比賽︱游學修出戰Red Bull「Max vs 100」　迎戰偶像韋斯塔本最終勇奪第10名</title>
+	<description>小型賽車比賽Red Bull「Max vs 100」於香港時間9月17日凌晨在英國著名的銀石賽道（Silverstone）圓滿舉行。四屆一級方程式（F1）世界冠軍韋斯塔本（Max Verstappen...</description>
+	<link>https://topick.hket.com/article/4195377</link>
+	<guid>https://topick.hket.com/article/4195377</guid>
+	<pubDate>Thu, 17 Sep 2026 13:52:00 +0800</pubDate>
+	<enclosure length="104780" type="image/jpeg" url="https://static04.hket.com/res/v3/image/content/4195000/4195377/max100_thumb_300.png" />
+</item>
+<item>
+	<title>女神配對計劃2︱上季求愛勇者Matthew捲土重來　黃家俊提出一個擇偶條件即激嬲花生團</title>
+	<description>【女神配對計劃2 / 黃家俊 / 關嘉敏】由「金牌媒人」林盛斌（Bob）主持的TVB戀愛真人騷《女神配對計劃2》將在本周日（9月20日）播出第3集，五大女神何沛珈（Roxanne）、阮嘉敏（Mandy...</description>
+	<link>https://topick.hket.com/article/4195331</link>
+	<guid>https://topick.hket.com/article/4195331</guid>
+	<pubDate>Thu, 17 Sep 2026 13:00:00 +0800</pubDate>
+	<enclosure length="95199" type="image/jpeg" url="https://static04.hket.com/res/v3/image/content/4195000/4195331/Matthew20260927_THUMB_NNNN_300.png" />
+</item>
+</channel>
+</rss>

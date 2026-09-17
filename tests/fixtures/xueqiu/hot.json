@@ -1,0 +1,27 @@
+{
+  "data": {
+    "items": [
+      {
+        "code": "SH601872",
+        "name": "招商轮船",
+        "percent": 10.02,
+        "exchange": "SH",
+        "ad": 0
+      },
+      {
+        "code": "SH601091",
+        "name": "N沈鼓",
+        "percent": 373.8,
+        "exchange": "SH",
+        "ad": 0
+      },
+      {
+        "code": "SH601899",
+        "name": "紫金矿业",
+        "percent": -3.95,
+        "exchange": "SH",
+        "ad": 0
+      }
+    ]
+  }
+}
