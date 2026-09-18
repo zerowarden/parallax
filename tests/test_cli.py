@@ -59,10 +59,13 @@ def test_fetch_all_exits_nonzero_when_the_batch_has_failures(
         )
     )
     monkeypatch.setattr("parallax.cli._runtime", lambda config: runtime)
+    monkeypatch.setenv("COLUMNS", "200")
 
     result = CliRunner().invoke(app, ["fetch-all"])
 
     assert result.exit_code == 1
+    assert "failed" in result.output
+    assert "RuntimeError: failed" in result.output
 
 
 def test_fetch_all_forwards_the_since_window(

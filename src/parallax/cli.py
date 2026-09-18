@@ -95,7 +95,7 @@ def fetch_source(
                 err=True,
             )
             raise typer.Exit(code=1) from exc
-        Presenter().summaries([summary])
+        Presenter().fetch_results([summary])
 
 
 @app.command("fetch-all")
@@ -116,7 +116,7 @@ def fetch_all(
             runtime.registry.enabled(),
             since=window,
         )
-        Presenter().summaries(result.summaries)
+        Presenter().fetch_results(result.summaries, result.failures)
     if result.failures:
         raise typer.Exit(code=1)
 

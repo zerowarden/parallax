@@ -327,6 +327,151 @@ def test_transport_does_not_reuse_upstream_cookies_across_requests() -> None:
     assert "session=1" not in requests[1].headers.get("cookie", "")
 
 
+def test_transport_sends_cookie_declared_in_request_spec() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, content=b"ok")
+
+    transport = _mock_transport(handler)
+    source = _source("https://example.test/feed")
+    try:
+        transport.request(
+            RequestSpec(
+                method="GET",
+                url=source.url,
+                headers={"Cookie": "ttwid=abc; sessionid=def"},
+            ),
+            source,
+            StreamState(source_id=source.id),
+        )
+    finally:
+        transport.close()
+
+    assert requests[0].headers["Cookie"] == "ttwid=abc; sessionid=def"
+
+
+def test_transport_declared_cookie_overrides_upstream_jar_cookie() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(
+            200,
+            content=b"ok",
+            headers={"Set-Cookie": "session=1; Path=/"},
+        )
+
+    transport = _mock_transport(handler)
+    source = _source("https://example.test/feed")
+    try:
+        transport.request(
+            RequestSpec(method="GET", url=source.url),
+            source,
+            StreamState(source_id=source.id),
+        )
+        transport.request(
+            RequestSpec(
+                method="GET",
+                url=source.url,
+                headers={"Cookie": "declared=1"},
+            ),
+            source,
+            StreamState(source_id=source.id),
+        )
+    finally:
+        transport.close()
+
+    assert requests[1].headers["Cookie"] == "declared=1"
+
+
+def test_transport_reapplies_declared_cookie_across_same_authority_redirect() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path == "/start":
+            return httpx.Response(
+                302,
+                headers={
+                    "Location": "/final",
+                    "Set-Cookie": "affinity=upstream; Path=/",
+                },
+            )
+        return httpx.Response(200, content=b"ok")
+
+    transport = _mock_transport(handler)
+    source = _source("https://example.test/start")
+    try:
+        transport.request(
+            RequestSpec(
+                method="GET",
+                url=source.url,
+                headers={"Cookie": "declared=1"},
+            ),
+            source,
+            StreamState(source_id=source.id),
+        )
+    finally:
+        transport.close()
+
+    assert [request.headers["Cookie"] for request in requests] == [
+        "declared=1",
+        "declared=1",
+    ]
+
+
+def test_transport_strips_upstream_cookie_across_same_authority_redirect() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path == "/start":
+            return httpx.Response(
+                302,
+                headers={
+                    "Location": "/final",
+                    "Set-Cookie": "affinity=upstream; Path=/",
+                },
+            )
+        return httpx.Response(200, content=b"ok")
+
+    transport = _mock_transport(handler)
+    source = _source("https://example.test/start")
+    try:
+        transport.request(
+            RequestSpec(method="GET", url=source.url),
+            source,
+            StreamState(source_id=source.id),
+        )
+    finally:
+        transport.close()
+
+    assert "cookie" not in requests[1].headers
+
+
+def test_transport_omits_empty_declared_cookie() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, content=b"ok")
+
+    transport = _mock_transport(handler)
+    source = _source("https://example.test/feed")
+    try:
+        transport.request(
+            RequestSpec(method="GET", url=source.url, headers={"Cookie": ""}),
+            source,
+            StreamState(source_id=source.id),
+        )
+    finally:
+        transport.close()
+
+    assert "cookie" not in requests[0].headers
+
+
 def test_transport_rejects_allowlisted_redirect_with_sensitive_header() -> None:
     requests: list[httpx.Request] = []
 

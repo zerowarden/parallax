@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from rich.console import Console
 
+from parallax.domain import IngestionFailure, IngestionSummary
 from parallax.feed import HeadlineFeedRow
 from parallax.presentation import Presenter
 from parallax.storage import HeadlineRow
@@ -74,3 +75,40 @@ def test_feed_reports_empty_state() -> None:
     Presenter(console).feed(())
 
     assert "No stored headlines yet." in console.export_text()
+
+
+def test_fetch_results_render_failure_rows_with_red_status() -> None:
+    console = Console(force_terminal=True, record=True, width=200)
+
+    Presenter(console).fetch_results(
+        (),
+        (IngestionFailure("fixture", "RuntimeError", "upstream returned 500"),),
+    )
+    output = console.export_text(styles=True)
+
+    assert "failed" in output
+    assert "RuntimeError: upstream returned 500" in output
+    assert "\x1b[31mfailed" in output
+
+
+def test_fetch_results_render_summary_counts_and_failure_details() -> None:
+    console = Console(record=True, width=200)
+    summaries = (
+        IngestionSummary(
+            source_id="fixture",
+            fetch_run_id=1,
+            status="success",
+            item_count=4,
+            new_item_count=3,
+            new_version_count=1,
+            rejected_count=0,
+        ),
+    )
+    failures = (IngestionFailure("broken", "ValueError", "schema drift"),)
+
+    Presenter(console).fetch_results(summaries, failures)
+    output = console.export_text()
+
+    assert "success" in output
+    assert "failed" in output
+    assert "ValueError: schema drift" in output

@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from collections.abc import Mapping
 from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
 from types import TracebackType
@@ -101,14 +102,12 @@ class HttpTransport(AbstractContextManager["HttpTransport"]):
             headers=headers,
             content=spec.content,
         )
-        # The transport never sends browser cookies; drop any cookie the shared
-        # client jar merged in so request policy sees a cookie-free request and
-        # later fetches cannot inherit stale upstream cookies.
-        request.headers.pop("cookie", None)
+        declared_cookie = _declared_cookie(headers)
         redirect_count = 0
         attempt = 0
         while True:
             attempt += 1
+            _apply_cookie_policy(request, declared_cookie)
             try:
                 response, host_semaphore = self._send_once(request)
             except _TRANSIENT_ERRORS as exc:
@@ -123,11 +122,7 @@ class HttpTransport(AbstractContextManager["HttpTransport"]):
                             f"Exceeded {MAX_REDIRECTS} redirects",
                             request=request,
                         )
-                    if not _same_safe_authority(request.url, next_request.url):
-                        # Upstream cookies (for example load-balancer affinity)
-                        # are not credentials of ours and must not follow a
-                        # redirect to a different authority.
-                        _discard_upstream_cookies(next_request)
+                    _apply_cookie_policy(next_request, declared_cookie)
                     if not self._is_safe_redirect(request, next_request, source):
                         raise UnsafeRedirectError(
                             "Refusing unsafe redirect: "
@@ -334,8 +329,25 @@ def _effective_port(url: httpx.URL) -> int | None:
     return {"http": 80, "https": 443}.get(url.scheme)
 
 
-def _discard_upstream_cookies(request: httpx.Request) -> None:
-    request.headers.pop("cookie", None)
+def _declared_cookie(headers: Mapping[str, str]) -> str:
+    """Return the cookie declared by the adapter or source, if any."""
+    declared = ""
+    for name, value in headers.items():
+        if name.lower() == "cookie":
+            declared = value
+    return declared
+
+
+def _apply_cookie_policy(request: httpx.Request, declared_cookie: str) -> None:
+    """Send only explicitly declared cookies; never the shared client jar.
+
+    The client jar accumulates upstream cookies, which must neither leak into
+    unrelated requests nor override an adapter's bootstrap cookie.
+    """
+    if declared_cookie:
+        request.headers["Cookie"] = declared_cookie
+    else:
+        request.headers.pop("cookie", None)
 
 
 def _has_sensitive_request_headers(headers: httpx.Headers) -> bool:

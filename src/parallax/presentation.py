@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Iterable
+from dataclasses import dataclass
 from datetime import datetime
 
 from rich.console import Console
@@ -10,9 +11,64 @@ from rich.text import Text
 
 from parallax.config import SourceConfig
 from parallax.diagnostics import SourceDiagnostic
-from parallax.domain import IngestionSummary, StreamState
+from parallax.domain import (
+    IngestionFailure,
+    IngestionSummary,
+    StreamState,
+)
 from parallax.feed import HeadlineFeedRow
 from parallax.storage import FetchRunRow, HeadlineRow
+
+FAILED_STATUS = "failed"
+
+
+@dataclass(frozen=True, slots=True)
+class FetchResultRow:
+    """Presentation row unifying one fetch summary or failure."""
+
+    source_id: str
+    status: str
+    item_count: int | None
+    new_item_count: int | None
+    new_version_count: int | None
+    rejected_count: int | None
+    error: str | None = None
+
+    @property
+    def failed(self) -> bool:
+        return self.status == FAILED_STATUS
+
+
+def build_fetch_result_rows(
+    summaries: Iterable[IngestionSummary],
+    failures: Iterable[IngestionFailure],
+) -> tuple[FetchResultRow, ...]:
+    return tuple(_summary_row(summary) for summary in summaries) + tuple(
+        _failure_row(failure) for failure in failures
+    )
+
+
+def _summary_row(summary: IngestionSummary) -> FetchResultRow:
+    return FetchResultRow(
+        source_id=summary.source_id,
+        status=summary.status,
+        item_count=summary.item_count,
+        new_item_count=summary.new_item_count,
+        new_version_count=summary.new_version_count,
+        rejected_count=summary.rejected_count,
+    )
+
+
+def _failure_row(failure: IngestionFailure) -> FetchResultRow:
+    return FetchResultRow(
+        source_id=failure.source_id,
+        status=FAILED_STATUS,
+        item_count=None,
+        new_item_count=None,
+        new_version_count=None,
+        rejected_count=None,
+        error=_error_text(failure.error_type, failure.error_message),
+    )
 
 
 class Presenter:
@@ -40,7 +96,11 @@ class Presenter:
             )
         self.console.print(table)
 
-    def summaries(self, summaries: Iterable[IngestionSummary]) -> None:
+    def fetch_results(
+        self,
+        summaries: Iterable[IngestionSummary],
+        failures: Iterable[IngestionFailure] = (),
+    ) -> None:
         table = Table(title="Fetch results")
         table.add_column("Source")
         table.add_column("Status")
@@ -48,14 +108,19 @@ class Presenter:
         table.add_column("New items", justify="right")
         table.add_column("New versions", justify="right")
         table.add_column("Rejected", justify="right")
-        for summary in summaries:
+        table.add_column("Error")
+        for row in build_fetch_result_rows(summaries, failures):
+            status = (
+                Text(row.status, style="red") if row.failed else _literal(row.status)
+            )
             table.add_row(
-                _literal(summary.source_id),
-                _literal(summary.status),
-                str(summary.item_count),
-                str(summary.new_item_count),
-                str(summary.new_version_count),
-                str(summary.rejected_count),
+                _literal(row.source_id),
+                status,
+                _count(row.item_count),
+                _count(row.new_item_count),
+                _count(row.new_version_count),
+                _count(row.rejected_count),
+                _literal(row.error or ""),
             )
         self.console.print(table)
 
@@ -189,9 +254,9 @@ class Presenter:
         run_table.add_column("Versions", justify="right")
         run_table.add_column("Error")
         for run in runs:
-            error = ""
-            if run.error_type:
-                error = f"{run.error_type}: {run.error_message or ''}"
+            error = (
+                _error_text(run.error_type, run.error_message) if run.error_type else ""
+            )
             run_table.add_row(
                 str(run.id),
                 _literal(run.source_id),
@@ -207,6 +272,16 @@ class Presenter:
 
 def _dt(value: datetime | None) -> str:
     return "-" if value is None else value.isoformat(timespec="seconds")
+
+
+def _count(value: int | None) -> str:
+    return "-" if value is None else str(value)
+
+
+def _error_text(error_type: str, error_message: str | None) -> str:
+    if not error_message:
+        return error_type
+    return f"{error_type}: {error_message}"
 
 
 def _literal(value: object) -> Text:
