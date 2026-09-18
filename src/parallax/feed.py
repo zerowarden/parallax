@@ -1,10 +1,21 @@
 from __future__ import annotations
 
-import unicodedata
 from collections.abc import Iterable
 from dataclasses import dataclass
+from typing import Literal
 
+from parallax.normalization import normalize_title_for_version
 from parallax.storage import HeadlineRow
+
+FeedOrder = Literal["observed", "published"]
+
+
+@dataclass(frozen=True, slots=True)
+class HeadlineGroup:
+    """One exact story group with every observed appearance."""
+
+    representative: HeadlineRow
+    appearances: tuple[HeadlineRow, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -17,53 +28,110 @@ class HeadlineFeedRow:
     duplicate_count: int
 
 
-def build_headline_feed(rows: Iterable[HeadlineRow]) -> tuple[HeadlineFeedRow, ...]:
-    """Collapse per-source headlines into one recency-ordered display view.
+def build_headline_groups(
+    rows: Iterable[HeadlineRow],
+    *,
+    order: FeedOrder,
+) -> tuple[HeadlineGroup, ...]:
+    """Collapse per-source headlines into exact story groups.
 
-    Two observations describe the same story when their stored canonical URLs
-    match or their normalized headlines match; equality is transitive, so the
-    union of both relations forms the story groups. The first (most recent)
-    observation represents the story and later members only increment
-    ``duplicate_count``. This is a read model: nothing is persisted and
+    Two observations describe the same resource when their stored canonical
+    URLs match, or when their normalized headlines and item kinds match;
+    equality is transitive, so the union of both relations forms the groups.
+    ``observed`` groups include every row and rank by the latest
+    ``first_seen_at``; ``published`` groups require a known ``published_at``
+    and rank strictly by it. This is a read model: nothing is persisted and
     per-source identity and provenance remain untouched in storage.
     """
-    ordered = sorted(
-        rows,
-        key=lambda row: (
-            row.source_name,
-            row.position if row.position is not None else 0,
-        ),
-    )
-    ordered.sort(key=_recency_key, reverse=True)
-
+    ordered = _ordered_rows(rows, order)
     keys = [_identity_keys(row, index) for index, row in enumerate(ordered)]
     parent: dict[str, str] = {}
     for url_key, title_key in keys:
         if url_key and title_key:
             _union(parent, url_key, title_key)
 
-    groups: dict[str, list[HeadlineRow]] = {}
+    grouped: dict[str, list[HeadlineRow]] = {}
     for (url_key, title_key), row in zip(keys, ordered, strict=True):
         root = _find(parent, url_key or title_key)
-        groups.setdefault(root, []).append(row)
+        grouped.setdefault(root, []).append(row)
 
-    return tuple(
-        HeadlineFeedRow(
-            title=members[0].title,
-            url=members[0].url,
-            published_at=members[0].published_at,
-            first_seen_at=members[0].first_seen_at,
-            source_name=members[0].source_name,
-            duplicate_count=len(members) - 1,
+    groups: list[HeadlineGroup] = []
+    for members in grouped.values():
+        representative = _representative(members, order)
+        if representative is None:
+            continue
+        groups.append(
+            HeadlineGroup(
+                representative=representative,
+                appearances=tuple(members),
+            )
         )
-        for members in groups.values()
+    groups.sort(
+        key=lambda group: _chronology_key(group.representative, order),
+        reverse=True,
+    )
+    return tuple(groups)
+
+
+def build_headline_feed(
+    groups: Iterable[HeadlineGroup],
+) -> tuple[HeadlineFeedRow, ...]:
+    """Flatten exact groups into the display feed."""
+    return tuple(_feed_row(group) for group in groups)
+
+
+def _ordered_rows(rows: Iterable[HeadlineRow], order: FeedOrder) -> list[HeadlineRow]:
+    """Sort rows deterministically, newest chronology first."""
+    ordered = sorted(
+        rows,
+        key=lambda row: (
+            row.source_name,
+            row.position if row.position is not None else 0,
+            row.item_id,
+        ),
+    )
+    ordered.sort(key=lambda row: _chronology_key(row, order), reverse=True)
+    return ordered
+
+
+def _chronology_key(row: HeadlineRow, order: FeedOrder) -> str:
+    if order == "observed":
+        return row.first_seen_at
+    return row.published_at or ""
+
+
+def _representative(
+    members: list[HeadlineRow],
+    order: FeedOrder,
+) -> HeadlineRow | None:
+    if order == "observed":
+        return max(members, key=lambda row: row.first_seen_at)
+    dated = [row for row in members if row.published_at is not None]
+    if not dated:
+        return None
+    return max(dated, key=lambda row: row.published_at or "")
+
+
+def _feed_row(group: HeadlineGroup) -> HeadlineFeedRow:
+    representative = group.representative
+    return HeadlineFeedRow(
+        title=representative.title,
+        url=representative.url,
+        published_at=representative.published_at,
+        first_seen_at=representative.first_seen_at,
+        source_name=representative.source_name,
+        duplicate_count=len(group.appearances) - 1,
     )
 
 
 def _identity_keys(row: HeadlineRow, index: int) -> tuple[str, str]:
-    """Return the URL and title keys that decide story membership."""
+    """Return the URL and title keys that decide exact group membership."""
     url_key = f"url:{row.canonical_url}" if row.canonical_url else ""
-    title_key = f"title:{_normalize_title(row.title)}" if row.title.strip() else ""
+    title_key = (
+        f"title:{row.item_kind}:{normalize_title_for_version(row.title).casefold()}"
+        if row.title.strip()
+        else ""
+    )
     if not url_key and not title_key:
         return f"row:{index}", ""
     return url_key, title_key
@@ -84,11 +152,3 @@ def _union(parent: dict[str, str], left: str, right: str) -> None:
     right_root = _find(parent, right)
     if left_root != right_root:
         parent[right_root] = left_root
-
-
-def _recency_key(row: HeadlineRow) -> str:
-    return row.published_at or row.first_seen_at
-
-
-def _normalize_title(title: str) -> str:
-    return " ".join(unicodedata.normalize("NFKC", title).split()).casefold()

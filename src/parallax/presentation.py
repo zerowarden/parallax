@@ -16,10 +16,14 @@ from parallax.domain import (
     IngestionSummary,
     StreamState,
 )
-from parallax.feed import HeadlineFeedRow
+from parallax.feed import FeedOrder, HeadlineFeedRow
 from parallax.storage import FetchRunRow, HeadlineRow
 
 FAILED_STATUS = "failed"
+FEED_TITLES = {
+    "observed": "Latest observed headlines",
+    "published": "Latest published headlines",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,12 +144,18 @@ class Presenter:
                     str(row.position or "-"),
                     _literal(row.title),
                     _literal(row.published_at or "unknown"),
+                    _literal(row.first_seen_at),
                     _literal(row.url),
                 )
             self.console.print(table)
 
-    def feed(self, rows: Iterable[HeadlineFeedRow]) -> None:
-        table = self._headline_table("Latest headlines", with_source=True)
+    def feed(
+        self,
+        rows: Iterable[HeadlineFeedRow],
+        *,
+        order: FeedOrder = "observed",
+    ) -> None:
+        table = self._headline_table(FEED_TITLES[order], with_source=True)
         count = 0
         for count, row in enumerate(rows, start=1):
             source = (
@@ -157,6 +167,7 @@ class Presenter:
                 str(count),
                 _literal(row.title),
                 _literal(row.published_at or "unknown"),
+                _literal(row.first_seen_at),
                 _literal(source),
                 _literal(row.url),
             )
@@ -170,6 +181,7 @@ class Presenter:
         table.add_column("#", width=4, justify="right")
         table.add_column("Headline", overflow="fold")
         table.add_column("Published", width=25)
+        table.add_column("First seen", width=25)
         if with_source:
             table.add_column("Source", overflow="fold")
         table.add_column("URL", overflow="fold")

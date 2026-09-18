@@ -8,6 +8,8 @@ from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from parallax.domain import ItemKind, StreamKind
+
 
 class ConfigModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -142,8 +144,8 @@ class SourceConfig(ConfigModel):
     language: str = Field(min_length=2)
     adapter: str = Field(min_length=1)
     url: str = Field(min_length=1)
-    stream_kind: str = Field(default="latest", min_length=1)
-    item_kind: str = Field(default="article", min_length=1)
+    stream_kind: StreamKind = "latest"
+    item_kind: ItemKind = "article"
     retrieval_method: str = Field(default="unknown", min_length=1)
     enabled: bool = True
     schedule_seconds: int = Field(default=900, ge=30)

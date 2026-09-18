@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import threading
 from collections.abc import Callable, Iterator
+from datetime import UTC, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
@@ -127,6 +128,26 @@ def test_transport_captures_response_cookies(
         )
 
     assert response.cookies == {"fixture": "1"}
+
+
+def test_transport_records_aware_utc_observation_time(
+    recording_server: tuple[str, list[str]],
+):
+    base_url, _ = recording_server
+    source = _source(f"{base_url}/observed")
+    before = datetime.now(UTC)
+
+    with HttpTransport(HttpConfig()) as transport:
+        response = transport.request(
+            RequestSpec(method="GET", url=source.url),
+            source,
+            StreamState(source_id=source.id),
+        )
+
+    after = datetime.now(UTC)
+
+    assert response.observed_at.utcoffset() == timedelta(0)
+    assert before <= response.observed_at <= after
 
 
 def test_transport_forwards_post_body(

@@ -61,7 +61,9 @@ class WenweipoNewsAdapter:
                     title=title,
                     url=urljoin(BASE_URL, href),
                     external_id=article_match.group(1) if article_match else None,
-                    published_at=parse_relative_time(raw_published),
+                    published_at=parse_relative_time(
+                        raw_published, now=response.observed_at
+                    ),
                     raw_published_at=raw_published or None,
                     position=len(candidates) + 1,
                     metrics=metrics,

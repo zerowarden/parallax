@@ -57,7 +57,9 @@ class Kr36QuickAdapter:
                     title=title,
                     url=url,
                     external_id=(newsflash_match.group(1) if newsflash_match else None),
-                    published_at=parse_relative_time(raw_published),
+                    published_at=parse_relative_time(
+                        raw_published, now=response.observed_at
+                    ),
                     raw_published_at=raw_published or None,
                     position=len(candidates) + 1,
                     metrics={"stream_kind": source.stream_kind},

@@ -44,6 +44,7 @@ class _PreparedSuccess:
     http_status: int | None
     etag: str | None
     last_modified: str | None
+    observed_at: datetime
 
 
 @dataclass(frozen=True, slots=True)
@@ -223,6 +224,7 @@ class IngestionService:
             response.status_code,
             response.headers.get("etag"),
             response.headers.get("last-modified"),
+            refresh.observed_at,
         )
 
     def _prepare_combined(
@@ -237,7 +239,13 @@ class IngestionService:
             StreamState(source_id=source.id),
         )
         assert refresh.batch is not None
-        return _PreparedSuccess(self._validate(source, refresh.batch), None, None, None)
+        return _PreparedSuccess(
+            self._validate(source, refresh.batch),
+            None,
+            None,
+            None,
+            refresh.observed_at,
+        )
 
     def _prepare_history(
         self,
@@ -287,6 +295,7 @@ class IngestionService:
             response_etag=prepared.etag,
             response_last_modified=prepared.last_modified,
             next_run_at=now + timedelta(seconds=source.schedule_seconds),
+            observed_at=prepared.observed_at,
         )
 
     def _validate(self, source: SourceConfig, parsed: ParsedBatch) -> ValidatedBatch:

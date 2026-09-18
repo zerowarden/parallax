@@ -9,10 +9,13 @@ from parallax.storage import HeadlineRow
 
 
 def test_headline_content_is_rendered_as_literal_text() -> None:
-    console = Console(record=True, width=160)
+    console = Console(record=True, width=240)
     row = HeadlineRow(
         source_id="fixture",
         source_name="Source [bold]literal[/bold]",
+        item_id=1,
+        stream_kind="latest",
+        item_kind="article",
         position=1,
         title="Malformed [/bold] and [red]literal[/red]",
         url="https://example.test/[story]",
@@ -27,6 +30,7 @@ def test_headline_content_is_rendered_as_literal_text() -> None:
     assert "[bold]literal[/bold]" in output
     assert "Malformed [/bold] and [red]literal[/red]" in output
     assert "https://example.test/[story]" in output
+    assert "First seen" in output
 
 
 def test_feed_renders_deduplicated_source_and_literal_content() -> None:
@@ -67,6 +71,27 @@ def test_feed_renders_unknown_publication_time() -> None:
     Presenter(console).feed(rows)
 
     assert "unknown" in console.export_text()
+
+
+def test_feed_renders_order_specific_title_and_first_seen() -> None:
+    console = Console(record=True, width=160)
+    rows = (
+        HeadlineFeedRow(
+            title="Undated",
+            url="https://example.test/undated",
+            published_at=None,
+            first_seen_at="2026-09-17T10:05:00+00:00",
+            source_name="Alpha",
+            duplicate_count=0,
+        ),
+    )
+
+    Presenter(console).feed(rows, order="published")
+    output = console.export_text()
+
+    assert "Latest published headlines" in output
+    assert "First seen" in output
+    assert "2026-09-17T10:05:00+00:00" in output
 
 
 def test_feed_reports_empty_state() -> None:

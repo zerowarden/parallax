@@ -6,6 +6,7 @@ import time
 from collections.abc import Mapping
 from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from types import TracebackType
 from typing import Protocol
 from urllib.parse import urlsplit
@@ -147,6 +148,7 @@ class HttpTransport(AbstractContextManager["HttpTransport"]):
                     if not self._retry_transient(request, source, attempt, exc):
                         raise
                     continue
+                observed_at = datetime.now(UTC)
                 final_url = str(response.url)
                 LOGGER.info(
                     "operation=http_response source_id=%s status=%s bytes=%s url=%s",
@@ -160,6 +162,7 @@ class HttpTransport(AbstractContextManager["HttpTransport"]):
                     url=final_url,
                     headers=dict(response.headers),
                     content=content,
+                    observed_at=observed_at,
                     cookies=dict(response.cookies),
                 )
             finally:

@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
 from adapter_contract import (
+    OBSERVED_AT,
     assert_batch_contract,
     assert_parse_rejects,
     response_for,
@@ -1602,7 +1603,9 @@ def test_gelonghui_adapter_parses_listing(fixtures_dir: Path):
     source = _source("gelonghui_news", "https://example.com/news/")
     payload = (fixtures_dir / "gelonghui" / "listing.html").read_bytes()
 
-    batch = GelonghuiNewsAdapter().parse(source, response_for(source, payload))
+    batch = GelonghuiNewsAdapter().parse(
+        source, response_for(source, payload, observed_at=OBSERVED_AT)
+    )
 
     assert_batch_contract(batch)
     assert len(batch.candidates) == 3
@@ -1610,7 +1613,7 @@ def test_gelonghui_adapter_parses_listing(fixtures_dir: Path):
     assert first.title == "ETF洞察|纳指科技ETF溢价26.08%，多只纳指ETF超溢价10%"
     assert first.external_id == "5313638"
     assert first.url == "https://www.gelonghui.com/news/5313638"
-    assert first.published_at is not None
+    assert first.published_at == OBSERVED_AT - timedelta(minutes=2)
     assert first.raw_published_at == "2分钟前"
     assert first.metrics["category"] == "A股异动"
     assert [candidate.position for candidate in batch.candidates] == [1, 2, 3]
@@ -1641,7 +1644,9 @@ def test_kr36_adapter_parses_listing(fixtures_dir: Path):
     source = _source("kr36_quick", "https://example.com/newsflashes")
     payload = (fixtures_dir / "36kr-quick" / "listing.html").read_bytes()
 
-    batch = Kr36QuickAdapter().parse(source, response_for(source, payload))
+    batch = Kr36QuickAdapter().parse(
+        source, response_for(source, payload, observed_at=OBSERVED_AT)
+    )
 
     assert_batch_contract(batch)
     assert len(batch.candidates) == 3
@@ -1649,7 +1654,7 @@ def test_kr36_adapter_parses_listing(fixtures_dir: Path):
     assert first.title == "谷歌与瑞典钢铁企业Stegra合作，推动近零排放钢厂投产"
     assert first.external_id == "3987159841258243"
     assert first.url == "https://www.36kr.com/newsflashes/3987159841258243"
-    assert first.published_at is not None
+    assert first.published_at == OBSERVED_AT - timedelta(seconds=28)
     assert first.raw_published_at == "28秒前"
     assert [candidate.position for candidate in batch.candidates] == [1, 2, 3]
 
@@ -3174,7 +3179,9 @@ def test_am730_adapter_parses_news_list(fixtures_dir: Path):
     source = _source("am730_news", "https://www.am730.com.hk/")
     payload = (fixtures_dir / "am730" / "home.html").read_bytes()
 
-    batch = Am730NewsAdapter().parse(source, response_for(source, payload))
+    batch = Am730NewsAdapter().parse(
+        source, response_for(source, payload, observed_at=OBSERVED_AT)
+    )
 
     assert_batch_contract(batch)
     assert len(batch.candidates) == 2
@@ -3182,7 +3189,7 @@ def test_am730_adapter_parses_news_list(fixtures_dir: Path):
     assert first.external_id == "1053706"
     assert first.title.startswith("61歲婦人涉向女童落安眠藥")
     assert first.url.startswith("https://www.am730.com.hk/本地/1053706/")
-    assert first.published_at is not None
+    assert first.published_at == OBSERVED_AT - timedelta(minutes=2)
     assert first.raw_published_at == "2分鐘前"
     assert first.metrics["section"] == "本地"
 
@@ -3233,14 +3240,16 @@ def test_wenweipo_adapter_parses_news_list(fixtures_dir: Path):
     source = _source("wenweipo_news", "https://www.wenweipo.com/")
     payload = (fixtures_dir / "wenweipo" / "home.html").read_bytes()
 
-    batch = WenweipoNewsAdapter().parse(source, response_for(source, payload))
+    batch = WenweipoNewsAdapter().parse(
+        source, response_for(source, payload, observed_at=OBSERVED_AT)
+    )
 
     assert_batch_contract(batch)
     assert len(batch.candidates) == 3
     first = batch.candidates[0]
     assert first.title == "疑因投資欠債逾百萬起爭執　杏花邨男子涉持刀殺妻後自首"
     assert first.external_id == "AP6aab6f06e4b01d54a28395bc"
-    assert first.published_at is not None
+    assert first.published_at == OBSERVED_AT - timedelta(hours=4)
     assert first.raw_published_at == "4小時前"
 
 
@@ -3259,7 +3268,9 @@ def test_tkww_adapter_parses_story_list(fixtures_dir: Path):
     source = _source("tkww_news", "https://www.tkww.hk/")
     payload = (fixtures_dir / "tkww" / "home.html").read_bytes()
 
-    batch = TkwwNewsAdapter().parse(source, response_for(source, payload))
+    batch = TkwwNewsAdapter().parse(
+        source, response_for(source, payload, observed_at=OBSERVED_AT)
+    )
 
     assert_batch_contract(batch)
     assert len(batch.candidates) == 3
@@ -3272,7 +3283,7 @@ def test_tkww_adapter_parses_story_list(fixtures_dir: Path):
     assert first.url == (
         "https://www.tkww.hk/a/202609/17/AP6aab9f7ae4b05bea53178d85.html"
     )
-    assert first.published_at is not None
+    assert first.published_at == OBSERVED_AT - timedelta(hours=1)
     assert first.raw_published_at == "1小時前"
 
 

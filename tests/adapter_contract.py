@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from datetime import UTC, datetime
 from urllib.parse import urlsplit
 
 import pytest
@@ -8,6 +9,8 @@ import pytest
 from parallax.adapters.base import SourceAdapter
 from parallax.config import SourceConfig
 from parallax.domain import HeadlineCandidate, HttpResponse, ParsedBatch
+
+OBSERVED_AT = datetime(2026, 9, 18, 12, 0, tzinfo=UTC)
 
 
 def response_for(
@@ -17,6 +20,7 @@ def response_for(
     status_code: int = 200,
     headers: Mapping[str, str] | None = None,
     cookies: Mapping[str, str] | None = None,
+    observed_at: datetime = OBSERVED_AT,
 ) -> HttpResponse:
     """Build an in-memory upstream response for parser tests."""
     return HttpResponse(
@@ -24,6 +28,7 @@ def response_for(
         url=source.url,
         headers=dict(headers or {}),
         content=payload,
+        observed_at=observed_at,
         cookies=dict(cookies or {}),
     )
 

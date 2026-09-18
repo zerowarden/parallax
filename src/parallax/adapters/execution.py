@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import datetime
 
 import httpx
 
@@ -26,6 +27,13 @@ class AdapterRefresh:
     responses: tuple[HttpResponse, ...]
     batch: ParsedBatch | None = None
     not_modified: bool = False
+
+    @property
+    def observed_at(self) -> datetime:
+        """The latest HTTP observation made while completing this refresh."""
+        if not self.responses:
+            raise ValueError("Adapter refresh produced no HTTP observation")
+        return max(response.observed_at for response in self.responses)
 
 
 def run_adapter_refresh(

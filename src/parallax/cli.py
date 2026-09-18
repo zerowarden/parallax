@@ -7,7 +7,7 @@ from typing import Annotated
 
 import typer
 
-from parallax.feed import build_headline_feed
+from parallax.feed import FeedOrder, build_headline_feed, build_headline_groups
 from parallax.parsing import parse_since
 from parallax.presentation import Presenter
 from parallax.runtime import Runtime
@@ -32,6 +32,13 @@ SINCE_OPTION = Annotated[
     typer.Option(
         "--since",
         help="Backfill items published within a window (7d, 2w, 3m, 1y).",
+    ),
+]
+ORDER_OPTION = Annotated[
+    FeedOrder,
+    typer.Option(
+        "--order",
+        help="Global feed order: observed (latest seen) or published.",
     ),
 ]
 
@@ -163,23 +170,28 @@ def show_headlines(
             ),
         ),
     ] = None,
+    order: ORDER_OPTION = "observed",
     config: CONFIG_OPTION = Path("config.toml"),
 ) -> None:
     """Display the latest stored snapshot for each source."""
+    if source_id is not None and order != "observed":
+        raise typer.BadParameter("--order is only valid for the global feed")
     with _runtime(config) as runtime:
         if source_id is not None:
             runtime.registry.get(source_id)
         logging.getLogger(__name__).info(
-            "operation=cli_show source_id=%s limit=%s",
+            "operation=cli_show source_id=%s limit=%s order=%s",
             source_id or "all",
             limit,
+            order,
         )
-        rows = runtime.storage.latest_headlines(
+        rows = runtime.storage.latest_snapshot_headlines(
             limit_per_source=limit,
             source_id=source_id,
         )
         if source_id is None:
-            Presenter().feed(build_headline_feed(rows))
+            groups = build_headline_groups(rows, order=order)
+            Presenter().feed(build_headline_feed(groups), order=order)
         else:
             Presenter().headlines(rows)
 

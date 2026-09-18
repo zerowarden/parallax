@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping, Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
@@ -28,6 +29,8 @@ from parallax.ingest import IngestionService
 from parallax.presentation import Presenter
 from parallax.storage import Storage
 from parallax.validation import BatchValidator
+
+OBSERVED_AT = datetime(2026, 9, 18, 12, 0, tzinfo=UTC)
 
 
 class ScriptedTransport:
@@ -72,6 +75,7 @@ def _response(
         url=source.url,
         headers=dict(headers or {}),
         content=payload,
+        observed_at=OBSERVED_AT,
     )
 
 
@@ -113,7 +117,7 @@ def test_diagnose_healthy_source_reports_accepted_items(
 
     diagnostic = service.diagnose(source)
     runs = storage.recent_fetch_runs()
-    headlines = storage.latest_headlines()
+    headlines = storage.latest_snapshot_headlines()
     storage.close()
 
     assert diagnostic.classification == HEALTHY
@@ -138,6 +142,7 @@ def test_diagnose_quiet_when_upstream_not_modified(tmp_path: Path):
                 url=source.url,
                 headers={"etag": '"v1"'},
                 content=b"",
+                observed_at=OBSERVED_AT,
             )
         ]
     )

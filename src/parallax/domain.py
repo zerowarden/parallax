@@ -3,7 +3,31 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal, TypeGuard, get_args
+
+StreamKind = Literal["latest", "hot"]
+ItemKind = Literal[
+    "article",
+    "flash",
+    "game",
+    "movie",
+    "post",
+    "product",
+    "ranking",
+    "repository",
+    "trend",
+    "video",
+]
+STREAM_KINDS: frozenset[str] = frozenset(get_args(StreamKind))
+ITEM_KINDS: frozenset[str] = frozenset(get_args(ItemKind))
+
+
+def is_stream_kind(value: str) -> TypeGuard[StreamKind]:
+    return value in STREAM_KINDS
+
+
+def is_item_kind(value: str) -> TypeGuard[ItemKind]:
+    return value in ITEM_KINDS
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,7 +45,12 @@ class HttpResponse:
     url: str
     headers: Mapping[str, str]
     content: bytes
+    observed_at: datetime
     cookies: Mapping[str, str] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if self.observed_at.tzinfo is None:
+            raise ValueError("observed_at must be timezone-aware")
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,3 +120,27 @@ class ChangeEvent:
     item_id: int
     item_version_id: int | None
     created_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class AnalysisItem:
+    """One committed item version projected for downstream consumers.
+
+    ``source_language`` is the configured publisher hint, not detected
+    headline language. Datetimes are timezone-aware.
+    """
+
+    change_seq: int
+    event_type: str
+    item_id: int
+    item_version_id: int
+    title: str
+    source_id: str
+    source_language: str
+    source_enabled: bool
+    stream_kind: StreamKind
+    item_kind: ItemKind
+    original_url: str
+    canonical_url: str
+    published_at: datetime | None
+    first_seen_at: datetime

@@ -84,6 +84,32 @@ EXCLUDED_SOURCE_IDS = frozenset(
     {"36kr-renqi", "inmedia", "tvb-news", "thewitness-latest"}
 )
 
+FLASH_SOURCE_IDS = frozenset(
+    {
+        "mktnews-flash",
+        "wallstreetcn-quick",
+        "36kr-quick",
+        "cls-telegraph",
+        "fastbull-express",
+        "jin10",
+    }
+)
+
+ITEM_KINDS = frozenset(
+    {
+        "article",
+        "flash",
+        "game",
+        "movie",
+        "post",
+        "product",
+        "ranking",
+        "repository",
+        "trend",
+        "video",
+    }
+)
+
 REQUIRED_DOCUMENTS = ("README.md",)
 
 
@@ -123,6 +149,69 @@ def test_registry_contains_hong_kong_and_catalog_sources():
     assert "hkej" in ids
     assert "zhihu" in ids
     assert "weibo" in ids
+
+
+def test_checked_in_registry_uses_closed_kind_vocabulary() -> None:
+    root = Path(__file__).resolve().parents[1]
+    sources = load_settings(root / "config.toml").sources
+
+    assert {source.stream_kind for source in sources} == {"latest", "hot"}
+    assert {source.item_kind for source in sources} == ITEM_KINDS
+
+
+def test_flash_streams_are_classified_as_flash() -> None:
+    root = Path(__file__).resolve().parents[1]
+    sources = {
+        source.id: source for source in load_settings(root / "config.toml").sources
+    }
+
+    assert all(
+        sources[source_id].item_kind == "flash" for source_id in FLASH_SOURCE_IDS
+    )
+
+
+@pytest.mark.parametrize(
+    ("source_id", "item_kind"),
+    [
+        ("thepaper-hot", "article"),
+        ("xueqiu-hotstock", "ranking"),
+        ("github-trending-today", "repository"),
+        ("zhihu", "trend"),
+        ("steam", "game"),
+        ("douban", "movie"),
+        ("producthunt", "product"),
+        ("hackernews", "post"),
+        ("bilibili-hot-video", "video"),
+    ],
+)
+def test_representative_sources_keep_their_item_kind(
+    source_id: str, item_kind: str
+) -> None:
+    root = Path(__file__).resolve().parents[1]
+    sources = {
+        source.id: source for source in load_settings(root / "config.toml").sources
+    }
+
+    assert sources[source_id].item_kind == item_kind
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("stream_kind", "unknown"), ("item_kind", "unknown")],
+)
+def test_unknown_source_kinds_are_rejected(field: str, value: str) -> None:
+    payload = {
+        "id": "fixture",
+        "name": "Fixture",
+        "region": "CN",
+        "language": "zh-CN",
+        "adapter": "rss",
+        "url": "https://example.test/feed.xml",
+        field: value,
+    }
+
+    with pytest.raises(ValidationError, match=field):
+        SourceConfig.model_validate(payload)
 
 
 @pytest.mark.parametrize(("source_id", "adapter"), sorted(NATIVE_SOURCES.items()))

@@ -12,13 +12,17 @@ from pathlib import Path
 
 from parallax.config import SourceConfig
 from parallax.domain import (
+    AnalysisItem,
     ChangeEvent,
     HeadlineCandidate,
     IngestionSummary,
     StreamState,
     ValidatedBatch,
+    is_item_kind,
+    is_stream_kind,
 )
-from parallax.identity import canonicalize_url, identity_key
+from parallax.identity import identity_key
+from parallax.normalization import canonicalize_url, normalize_title_for_version
 
 LOGGER = logging.getLogger(__name__)
 SCHEMA_VERSION = 1
@@ -28,6 +32,9 @@ SCHEMA_VERSION = 1
 class HeadlineRow:
     source_id: str
     source_name: str
+    item_id: int
+    stream_kind: str
+    item_kind: str
     position: int | None
     title: str
     url: str
@@ -262,6 +269,21 @@ class Storage:
                     """,
                     (source.id,),
                 )
+                cursor = self._connection.execute(
+                    """
+                    UPDATE items SET item_kind = ?
+                    WHERE source_id = ? AND item_kind != ?
+                    """,
+                    (source.item_kind, source.id, source.item_kind),
+                )
+                if cursor.rowcount > 0:
+                    LOGGER.info(
+                        "operation=item_kind_reconcile source_id=%s "
+                        "item_kind=%s count=%s",
+                        source.id,
+                        source.item_kind,
+                        cursor.rowcount,
+                    )
             if sources:
                 placeholders = ", ".join("?" for _ in sources)
                 cursor = self._connection.execute(
@@ -330,19 +352,26 @@ class Storage:
         response_etag: str | None,
         response_last_modified: str | None,
         next_run_at: datetime,
+        observed_at: datetime,
     ) -> IngestionSummary:
         now = _iso_now()
+        observed = _iso(observed_at)
         with self.transaction():
             snapshot_cursor = self._connection.execute(
                 """
                 INSERT INTO snapshots(fetch_run_id, source_id, observed_at)
                 VALUES (?, ?, ?)
                 """,
-                (fetch_run_id, source.id, now),
+                (fetch_run_id, source.id, observed),
             )
             snapshot_id = _lastrowid(snapshot_cursor)
 
-            new_items, new_versions, stored = self._store_candidates(source, batch, now)
+            new_items, new_versions, stored = self._store_candidates(
+                source,
+                batch,
+                seen_at=observed,
+                committed_at=now,
+            )
             for candidate, (item_id, version_id) in zip(
                 batch.candidates,
                 stored,
@@ -433,7 +462,12 @@ class Storage:
         """
         now = _iso_now()
         with self.transaction():
-            new_items, new_versions, _ = self._store_candidates(source, batch, now)
+            new_items, new_versions, _ = self._store_candidates(
+                source,
+                batch,
+                seen_at=now,
+                committed_at=now,
+            )
             self._connection.execute(
                 """
                 UPDATE fetch_runs SET
@@ -560,7 +594,7 @@ class Storage:
             _iso(next_run_at),
         )
 
-    def latest_headlines(
+    def latest_snapshot_headlines(
         self,
         limit_per_source: int | None = None,
         source_id: str | None = None,
@@ -585,16 +619,28 @@ class Storage:
         rows = self._connection.execute(
             f"""
             WITH latest_snapshots AS (
-                SELECT source_id, MAX(id) AS snapshot_id
-                FROM snapshots
-                GROUP BY source_id
+                SELECT source_id, snapshot_id
+                FROM (
+                    SELECT
+                        source_id,
+                        id AS snapshot_id,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY source_id
+                            ORDER BY observed_at DESC, id DESC
+                        ) AS snapshot_rank
+                    FROM snapshots
+                )
+                WHERE snapshot_rank = 1
             ),
             ranked AS (
                 SELECT
                     s.source_id,
                     src.name AS source_name,
+                    src.stream_kind,
+                    src.item_kind,
                     se.position,
                     iv.title,
+                    i.id AS item_id,
                     i.original_url AS url,
                     i.canonical_url,
                     i.published_at,
@@ -626,6 +672,9 @@ class Storage:
             HeadlineRow(
                 source_id=row["source_id"],
                 source_name=row["source_name"],
+                item_id=row["item_id"],
+                stream_kind=row["stream_kind"],
+                item_kind=row["item_kind"],
                 position=row["position"],
                 title=row["title"],
                 url=row["url"],
@@ -738,6 +787,51 @@ class Storage:
                 (consumer_name, last_seq, now),
             )
 
+    def hydrate_analysis_items(
+        self,
+        events: Sequence[ChangeEvent],
+    ) -> list[AnalysisItem]:
+        """Hydrate committed change events into typed analysis inputs.
+
+        Events are returned in the supplied order. A missing item, missing or
+        mismatched item version, unknown classification, or unreadable
+        timestamp fails clearly so a consumer never silently skips committed
+        evidence.
+        """
+        if not events:
+            return []
+        placeholders = ", ".join("?" for _ in events)
+        rows = self._connection.execute(
+            f"""
+            SELECT
+                cl.seq,
+                cl.event_type,
+                cl.source_id AS event_source_id,
+                cl.item_id,
+                cl.item_version_id,
+                i.source_id AS item_source_id,
+                iv.title,
+                i.original_url,
+                i.canonical_url,
+                i.published_at,
+                i.first_seen_at,
+                src.language AS source_language,
+                src.enabled AS source_enabled,
+                src.stream_kind,
+                src.item_kind
+            FROM change_log cl
+            LEFT JOIN items i ON i.id = cl.item_id
+            LEFT JOIN item_versions iv
+              ON iv.id = cl.item_version_id AND iv.item_id = cl.item_id
+            LEFT JOIN sources src ON src.source_id = i.source_id
+            WHERE cl.seq IN ({placeholders})
+            ORDER BY cl.seq
+            """,
+            tuple(event.seq for event in events),
+        ).fetchall()
+        by_seq = {int(row["seq"]): row for row in rows}
+        return [_analysis_item(event, by_seq.get(event.seq)) for event in events]
+
     @contextmanager
     def transaction(self) -> Generator[None, None, None]:
         self._connection.execute("BEGIN IMMEDIATE")
@@ -780,17 +874,19 @@ class Storage:
         self,
         source: SourceConfig,
         batch: ValidatedBatch,
-        now: str,
+        *,
+        seen_at: str,
+        committed_at: str,
     ) -> tuple[int, int, tuple[tuple[int, int], ...]]:
         new_items = 0
         new_versions = 0
         stored: list[tuple[int, int]] = []
         for candidate in batch.candidates:
-            item_id, item_is_new = self._upsert_item(source, candidate, now)
+            item_id, item_is_new = self._upsert_item(source, candidate, seen_at)
             version_id, version_is_new = self._upsert_version(
                 item_id,
                 candidate.title.strip(),
-                now,
+                seen_at,
             )
             if item_is_new:
                 new_items += 1
@@ -799,7 +895,7 @@ class Storage:
                     source.id,
                     item_id,
                     version_id,
-                    now,
+                    committed_at,
                 )
             if version_is_new:
                 new_versions += 1
@@ -809,7 +905,7 @@ class Storage:
                         source.id,
                         item_id,
                         version_id,
-                        now,
+                        committed_at,
                     )
             stored.append((item_id, version_id))
         return new_items, new_versions, tuple(stored)
@@ -818,7 +914,7 @@ class Storage:
         self,
         source: SourceConfig,
         candidate: HeadlineCandidate,
-        now: str,
+        seen_at: str,
     ) -> tuple[int, bool]:
         key = identity_key(candidate)
         canonical_url = canonicalize_url(candidate.url)
@@ -850,8 +946,8 @@ class Storage:
                     source.item_kind,
                     published,
                     candidate.raw_published_at,
-                    now,
-                    now,
+                    seen_at,
+                    seen_at,
                 ),
             )
             return _lastrowid(cursor), True
@@ -859,19 +955,29 @@ class Storage:
         self._connection.execute(
             """
             UPDATE items SET
-                original_url = ?,
-                canonical_url = ?,
+                original_url = CASE
+                    WHEN last_seen_at <= ? THEN ?
+                    ELSE original_url
+                END,
+                canonical_url = CASE
+                    WHEN last_seen_at <= ? THEN ?
+                    ELSE canonical_url
+                END,
                 published_at = COALESCE(published_at, ?),
                 raw_published_at = COALESCE(raw_published_at, ?),
-                last_seen_at = ?
+                first_seen_at = MIN(first_seen_at, ?),
+                last_seen_at = MAX(last_seen_at, ?)
             WHERE id = ?
             """,
             (
+                seen_at,
                 candidate.url.strip(),
+                seen_at,
                 canonical_url,
                 published,
                 candidate.raw_published_at,
-                now,
+                seen_at,
+                seen_at,
                 existing["id"],
             ),
         )
@@ -881,9 +987,11 @@ class Storage:
         self,
         item_id: int,
         title: str,
-        now: str,
+        seen_at: str,
     ) -> tuple[int, bool]:
-        title_hash = hashlib.sha256(title.encode("utf-8")).hexdigest()
+        title_hash = hashlib.sha256(
+            normalize_title_for_version(title).encode("utf-8")
+        ).hexdigest()
         existing = self._connection.execute(
             """
             SELECT id FROM item_versions
@@ -891,12 +999,20 @@ class Storage:
             """,
             (item_id, title_hash),
         ).fetchone()
-        if existing is not None:
+        version_id = int(existing["id"]) if existing is not None else None
+        if version_id is None:
+            version_id = self._find_legacy_version(item_id, title)
+        if version_id is not None:
             self._connection.execute(
-                "UPDATE item_versions SET last_seen_at = ? WHERE id = ?",
-                (now, existing["id"]),
+                """
+                UPDATE item_versions SET
+                    first_seen_at = MIN(first_seen_at, ?),
+                    last_seen_at = MAX(last_seen_at, ?)
+                WHERE id = ?
+                """,
+                (seen_at, seen_at, version_id),
             )
-            return int(existing["id"]), False
+            return version_id, False
 
         cursor = self._connection.execute(
             """
@@ -904,9 +1020,21 @@ class Storage:
                 item_id, title, title_hash, first_seen_at, last_seen_at
             ) VALUES (?, ?, ?, ?, ?)
             """,
-            (item_id, title, title_hash, now, now),
+            (item_id, title, title_hash, seen_at, seen_at),
         )
         return _lastrowid(cursor), True
+
+    def _find_legacy_version(self, item_id: int, title: str) -> int | None:
+        """Match a version stored under the pre-normalization title hash."""
+        normalized = normalize_title_for_version(title)
+        rows = self._connection.execute(
+            "SELECT id, title FROM item_versions WHERE item_id = ?",
+            (item_id,),
+        ).fetchall()
+        for row in rows:
+            if normalize_title_for_version(row["title"]) == normalized:
+                return int(row["id"])
+        return None
 
     def _append_change(
         self,
@@ -939,6 +1067,64 @@ def _stream_state_row(row: sqlite3.Row) -> StreamState:
         consecutive_failures=row["consecutive_failures"],
         etag=row["etag"],
         last_modified=row["last_modified"],
+    )
+
+
+def _analysis_item(
+    event: ChangeEvent,
+    row: sqlite3.Row | None,
+) -> AnalysisItem:
+    if row is None:
+        raise ValueError(f"change event {event.seq} is missing from the change log")
+    if row["item_source_id"] is None:
+        raise ValueError(
+            f"change event {event.seq} references missing item {event.item_id}"
+        )
+    if row["item_source_id"] != row["event_source_id"]:
+        raise ValueError(
+            f"change event {event.seq} source {row['event_source_id']!r} does not "
+            f"own item {event.item_id}"
+        )
+    version_id = row["item_version_id"]
+    if version_id is None or row["title"] is None:
+        raise ValueError(
+            f"change event {event.seq} references missing item version "
+            f"{event.item_version_id}"
+        )
+    source_language = row["source_language"]
+    if source_language is None:
+        raise ValueError(
+            f"change event {event.seq} references missing source "
+            f"{row['event_source_id']!r}"
+        )
+    stream_kind = str(row["stream_kind"])
+    if not is_stream_kind(stream_kind):
+        raise ValueError(
+            f"item {event.item_id} has unsupported stream kind {stream_kind!r}"
+        )
+    item_kind = str(row["item_kind"])
+    if not is_item_kind(item_kind):
+        raise ValueError(
+            f"item {event.item_id} has unsupported item kind {item_kind!r}"
+        )
+    first_seen_at = _parse_dt(row["first_seen_at"])
+    if first_seen_at is None:
+        raise ValueError(f"item {event.item_id} has no first_seen_at")
+    return AnalysisItem(
+        change_seq=event.seq,
+        event_type=event.event_type,
+        item_id=int(row["item_id"]),
+        item_version_id=int(version_id),
+        title=str(row["title"]),
+        source_id=str(row["event_source_id"]),
+        source_language=str(source_language),
+        source_enabled=bool(row["source_enabled"]),
+        stream_kind=stream_kind,
+        item_kind=item_kind,
+        original_url=str(row["original_url"]),
+        canonical_url=str(row["canonical_url"]),
+        published_at=_parse_dt(row["published_at"]),
+        first_seen_at=first_seen_at,
     )
 
 

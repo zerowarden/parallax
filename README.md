@@ -19,6 +19,14 @@ uv run parallax fetch-all
 uv run parallax show
 ```
 
+The global feed defaults to latest observed order. Publication order is explicit,
+and source-specific views retain the source's latest snapshot order:
+
+```bash
+uv run parallax show --order published
+uv run parallax show --source SOURCE_ID
+```
+
 Run one due-source scheduler cycle with `uv run parallax run --once`, or keep
 the scheduler running with `uv run parallax run`.
 

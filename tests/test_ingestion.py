@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Mapping
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -32,6 +32,8 @@ from parallax.ingest import IngestionService
 from parallax.storage import Storage
 from parallax.validation import BatchValidator
 
+OBSERVED_AT = datetime(2026, 9, 18, 12, 0, tzinfo=UTC)
+
 
 class FakeTransport:
     def __init__(self, content: bytes) -> None:
@@ -48,6 +50,18 @@ class FakeTransport:
             url=spec.url,
             headers={"etag": '"fixture-v1"'},
             content=self.content,
+            observed_at=OBSERVED_AT,
+        )
+
+
+def test_http_response_rejects_naive_observation_time() -> None:
+    with pytest.raises(ValueError, match="timezone-aware"):
+        HttpResponse(
+            status_code=200,
+            url="https://example.com/1",
+            headers={},
+            content=b"",
+            observed_at=datetime(2026, 9, 18, 12, 0),
         )
 
 
@@ -75,7 +89,7 @@ def test_end_to_end_fetch_parse_validate_store(
     )
 
     summary = service.fetch_source(source)
-    rows = storage.latest_headlines(limit_per_source=10)
+    rows = storage.latest_snapshot_headlines(limit_per_source=10)
     state = storage.get_stream_state(source.id)
 
     assert summary.status == "success"
@@ -104,6 +118,7 @@ class MappingTransport:
             url=spec.url,
             headers={},
             content=self.payloads[spec.url],
+            observed_at=OBSERVED_AT,
         )
 
 
@@ -139,7 +154,7 @@ def test_multi_request_fetch_combines_responses_without_network(
     )
 
     summary = service.fetch_source(source)
-    rows = storage.latest_headlines(source_id=source.id)
+    rows = storage.latest_snapshot_headlines(source_id=source.id)
     state = storage.get_stream_state(source.id)
     storage.close()
 
@@ -188,7 +203,7 @@ class BatchTransport:
         try:
             if self.fail_source_id is None and source.id in {"batch-one", "batch-two"}:
                 self._barrier.wait(timeout=2)
-            return HttpResponse(200, spec.url, {}, b"{}")
+            return HttpResponse(200, spec.url, {}, b"{}", OBSERVED_AT)
         finally:
             with self._lock:
                 self.active -= 1
@@ -243,6 +258,7 @@ def test_batch_fetches_concurrently_and_commits_on_caller_thread(
         response_etag: str | None,
         response_last_modified: str | None,
         next_run_at: datetime,
+        observed_at: datetime,
     ):
         commits.append(threading.get_ident())
         return original_commit(
@@ -253,6 +269,7 @@ def test_batch_fetches_concurrently_and_commits_on_caller_thread(
             response_etag,
             response_last_modified,
             next_run_at,
+            observed_at,
         )
 
     storage.record_success = record_success  # type: ignore[method-assign]
@@ -300,6 +317,109 @@ def test_batch_records_uncommitted_runs_when_interrupted(tmp_path: Path) -> None
     assert len(runs) == 2
     assert {run.status for run in runs} == {"failed"}
     assert {run.error_type for run in runs} == {"InterruptedError"}
+
+
+class NotModifiedTransport:
+    def request(
+        self,
+        spec: RequestSpec,
+        source: SourceConfig,
+        state: StreamState,
+    ) -> HttpResponse:
+        return HttpResponse(
+            status_code=304,
+            url=spec.url,
+            headers={"etag": '"fixture-v1"'},
+            content=b"",
+            observed_at=OBSERVED_AT,
+        )
+
+
+def test_not_modified_records_no_new_snapshot(
+    fixtures_dir: Path, tmp_path: Path
+) -> None:
+    source = SourceConfig(
+        id="fixture-rss",
+        name="Fixture RSS",
+        region="US",
+        language="en-US",
+        adapter="rss",
+        url="https://example.com/rss.xml",
+    )
+    storage = Storage(tmp_path / "parallax.db")
+    storage.initialize()
+    storage.sync_sources([source])
+    service = IngestionService(
+        storage=storage,
+        transport=FakeTransport((fixtures_dir / "rss" / "feed.xml").read_bytes()),
+        adapters=AdapterRegistry(),
+        validator=BatchValidator(ValidationConfig()),
+        ingestion_config=IngestionConfig(),
+    )
+    service.fetch_source(source)
+
+    not_modified_service = IngestionService(
+        storage=storage,
+        transport=NotModifiedTransport(),
+        adapters=AdapterRegistry(),
+        validator=BatchValidator(ValidationConfig()),
+        ingestion_config=IngestionConfig(),
+    )
+    summary = not_modified_service.fetch_source(source)
+
+    rows = storage.latest_snapshot_headlines()
+    runs = storage.recent_fetch_runs()
+    state = storage.get_stream_state(source.id)
+    storage.close()
+
+    assert summary.status == "not_modified"
+    assert len(rows) == 2
+    assert runs[0].status == "not_modified"
+    assert state.last_success_at is not None
+
+
+class FailingAdapter:
+    def build_request(self, source: SourceConfig) -> RequestSpec:
+        return RequestSpec(method="GET", url=source.url)
+
+    def parse(self, source: SourceConfig, response: HttpResponse) -> ParsedBatch:
+        raise ValueError("upstream schema drift")
+
+
+def test_parse_failure_creates_no_snapshot_or_success(tmp_path: Path) -> None:
+    source = SourceConfig(
+        id="failing-fixture",
+        name="Failing",
+        region="US",
+        language="en-US",
+        adapter="failing",
+        url="https://example.com/failing",
+    )
+    storage = Storage(tmp_path / "parallax.db")
+    storage.initialize()
+    storage.sync_sources([source])
+    service = IngestionService(
+        storage=storage,
+        transport=MappingTransport({source.url: b"{}"}),
+        adapters=FixedAdapterLookup({"failing": FailingAdapter()}),
+        validator=BatchValidator(ValidationConfig()),
+        ingestion_config=IngestionConfig(),
+    )
+
+    with pytest.raises(ValueError, match="schema drift"):
+        service.fetch_source(source)
+
+    rows = storage.latest_snapshot_headlines()
+    runs = storage.recent_fetch_runs()
+    state = storage.get_stream_state(source.id)
+    changes = storage.changes_after(0)
+    storage.close()
+
+    assert rows == []
+    assert runs[0].status == "failed"
+    assert runs[0].error_type == "ValueError"
+    assert state.last_success_at is None
+    assert changes == []
 
 
 class SteppedFixtureAdapter:
@@ -404,6 +524,7 @@ def test_stepped_fetch_drives_sequence_offline(tmp_path: Path):
                 url="https://example.com/step-1",
                 headers={},
                 content=b"",
+                observed_at=OBSERVED_AT,
                 cookies={"session": "abc"},
             ),
             HttpResponse(
@@ -411,6 +532,7 @@ def test_stepped_fetch_drives_sequence_offline(tmp_path: Path):
                 url="https://example.com/step-2",
                 headers={},
                 content=b"{}",
+                observed_at=OBSERVED_AT + timedelta(minutes=1),
             ),
         ]
     )
@@ -419,7 +541,7 @@ def test_stepped_fetch_drives_sequence_offline(tmp_path: Path):
     )
 
     summary = service.fetch_source(source)
-    rows = storage.latest_headlines(source_id=source.id)
+    rows = storage.latest_snapshot_headlines(source_id=source.id)
     state = storage.get_stream_state(source.id)
     storage.close()
 
@@ -432,6 +554,7 @@ def test_stepped_fetch_drives_sequence_offline(tmp_path: Path):
     assert summary.item_count == 1
     assert len(rows) == 1
     assert rows[0].title == "Stepped headline"
+    assert rows[0].first_seen_at == (OBSERVED_AT + timedelta(minutes=1)).isoformat()
     assert state.etag is None
 
 
@@ -451,6 +574,7 @@ def test_stepped_fetch_rejects_unbounded_sequence(tmp_path: Path):
                 url="https://example.com/loop",
                 headers={},
                 content=b"",
+                observed_at=OBSERVED_AT,
             )
             for _ in range(MAX_ADAPTER_STEPS)
         ]
@@ -538,7 +662,7 @@ def test_history_fetch_records_without_snapshot(tmp_path: Path):
     summary = service.fetch_source(source, since=datetime(2026, 9, 1, tzinfo=UTC))
 
     runs = storage.recent_fetch_runs()
-    rows = storage.latest_headlines()
+    rows = storage.latest_snapshot_headlines()
     state = storage.get_stream_state(source.id)
     changes = storage.changes_after(0)
     storage.close()
@@ -584,7 +708,7 @@ def test_history_fetch_falls_back_when_unsupported(
 
     summary = service.fetch_source(source, since=datetime(2026, 9, 1, tzinfo=UTC))
 
-    rows = storage.latest_headlines()
+    rows = storage.latest_snapshot_headlines()
     state = storage.get_stream_state(source.id)
     storage.close()
 
