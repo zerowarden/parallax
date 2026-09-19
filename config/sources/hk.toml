@@ -1,0 +1,457 @@
+[[sources]]
+id = "rthk-local-zh"
+provider_id = "rthk"
+channel_id = "local"
+channel_label = "本地新聞"
+channel_role = "section"
+stream_kind = "latest"
+item_kind = "article"
+topics = ["hong-kong"]
+surfaces = ["news"]
+language = "zh-HK"
+market = "HK"
+interval_seconds = 600
+max_items = 100
+enabled = true
+provider_name = "香港電台"
+provider_kind = "publisher"
+[sources.redirect]
+allowed_hosts = ["rthk9.rthk.hk"]
+allow_https_downgrade = true
+[sources.endpoint]
+adapter = "rss"
+url = "https://rthk.hk/rthk/news/rss/c_expressnews_clocal.xml"
+
+[[sources]]
+id = "rthk-greaterchina"
+provider_id = "rthk"
+channel_id = "greater-china"
+channel_label = "大中華"
+channel_role = "section"
+stream_kind = "latest"
+item_kind = "article"
+topics = ["china"]
+surfaces = ["news"]
+language = "zh-HK"
+market = "HK"
+interval_seconds = 900
+max_items = 100
+enabled = true
+provider_name = "香港電台"
+provider_kind = "publisher"
+[sources.redirect]
+allowed_hosts = ["rthk9.rthk.hk"]
+allow_https_downgrade = true
+[sources.endpoint]
+adapter = "rss"
+url = "https://rthk.hk/rthk/news/rss/c_expressnews_greaterchina.xml"
+
+[[sources]]
+id = "rthk-cinternational"
+provider_id = "rthk"
+channel_id = "international"
+channel_label = "國際"
+channel_role = "section"
+stream_kind = "latest"
+item_kind = "article"
+topics = ["world"]
+surfaces = ["news"]
+language = "zh-HK"
+market = "HK"
+interval_seconds = 900
+max_items = 100
+enabled = true
+provider_name = "香港電台"
+provider_kind = "publisher"
+[sources.redirect]
+allowed_hosts = ["rthk9.rthk.hk"]
+allow_https_downgrade = true
+[sources.endpoint]
+adapter = "rss"
+url = "https://rthk.hk/rthk/news/rss/c_expressnews_cinternational.xml"
+
+[[sources]]
+id = "rthk-cfinance"
+provider_id = "rthk"
+channel_id = "finance"
+channel_label = "財經"
+channel_role = "section"
+stream_kind = "latest"
+item_kind = "article"
+topics = ["business", "markets"]
+surfaces = ["news"]
+language = "zh-HK"
+market = "HK"
+interval_seconds = 900
+max_items = 100
+enabled = true
+provider_name = "香港電台"
+provider_kind = "publisher"
+[sources.redirect]
+allowed_hosts = ["rthk9.rthk.hk"]
+allow_https_downgrade = true
+[sources.endpoint]
+adapter = "rss"
+url = "https://rthk.hk/rthk/news/rss/c_expressnews_cfinance.xml"
+
+[[sources]]
+id = "rthk-csport"
+provider_id = "rthk"
+channel_id = "sport"
+channel_label = "體育"
+channel_role = "section"
+stream_kind = "latest"
+item_kind = "article"
+topics = ["sports"]
+surfaces = ["news"]
+language = "zh-HK"
+market = "HK"
+interval_seconds = 900
+max_items = 100
+enabled = true
+provider_name = "香港電台"
+provider_kind = "publisher"
+[sources.redirect]
+allowed_hosts = ["rthk9.rthk.hk"]
+allow_https_downgrade = true
+[sources.endpoint]
+adapter = "rss"
+url = "https://rthk.hk/rthk/news/rss/c_expressnews_csport.xml"
+
+[[sources]]
+id = "mingpao-realtime"
+provider_id = "mingpao"
+channel_id = "realtime"
+channel_label = "即時全部"
+channel_role = "aggregate"
+stream_kind = "latest"
+item_kind = "article"
+topics = ["hong-kong"]
+surfaces = ["news"]
+language = "zh-HK"
+market = "HK"
+interval_seconds = 900
+max_items = 100
+enabled = true
+provider_name = "明報"
+provider_kind = "publisher"
+[sources.endpoint]
+adapter = "mingpao_rss"
+url = "https://news.mingpao.com/rss/ins/all.xml"
+
+[[sources]]
+id = "mingpao-daily-top"
+provider_id = "mingpao"
+channel_id = "daily-top"
+channel_label = "每日頭條"
+channel_role = "aggregate"
+stream_kind = "curated"
+item_kind = "article"
+topics = ["hong-kong"]
+surfaces = ["news"]
+language = "zh-HK"
+market = "HK"
+interval_seconds = 900
+max_items = 100
+enabled = true
+provider_name = "明報"
+provider_kind = "publisher"
+[sources.endpoint]
+adapter = "rss"
+url = "https://news.mingpao.com/rss/pns/s00001.xml"
+
+[[sources]]
+id = "hket-directory"
+provider_id = "hket"
+channel_id = "directory"
+channel_label = "全部"
+channel_role = "aggregate"
+stream_kind = "latest"
+item_kind = "article"
+topics = ["business", "markets", "hong-kong"]
+surfaces = ["news"]
+language = "zh-HK"
+market = "HK"
+interval_seconds = 900
+max_items = 100
+enabled = true
+provider_name = "香港經濟日報"
+provider_kind = "publisher"
+[sources.endpoint]
+adapter = "hket_rss"
+url = "https://www.hket.com/rss"
+
+[[sources]]
+id = "stheadline-rss"
+provider_id = "stheadline"
+channel_id = "all"
+channel_label = "全部"
+channel_role = "aggregate"
+stream_kind = "latest"
+item_kind = "article"
+topics = ["hong-kong"]
+surfaces = ["news"]
+language = "zh-HK"
+market = "HK"
+interval_seconds = 900
+max_items = 100
+enabled = true
+provider_name = "星島頭條"
+provider_kind = "publisher"
+[sources.endpoint]
+adapter = "rss"
+url = "https://www.stheadline.com/rss"
+
+[[sources]]
+id = "icable-rss"
+provider_id = "icable"
+channel_id = "all"
+channel_label = "全部"
+channel_role = "aggregate"
+stream_kind = "latest"
+item_kind = "article"
+topics = ["hong-kong"]
+surfaces = ["news"]
+language = "zh-HK"
+market = "HK"
+interval_seconds = 900
+max_items = 100
+enabled = true
+provider_name = "有線新聞"
+provider_kind = "publisher"
+[sources.endpoint]
+adapter = "rss"
+url = "https://www.i-cable.com/feed"
+
+[[sources]]
+id = "hk01-latest"
+provider_id = "hk01"
+channel_id = "latest"
+channel_label = "最新"
+channel_role = "aggregate"
+stream_kind = "latest"
+item_kind = "article"
+topics = ["hong-kong"]
+surfaces = ["news"]
+language = "zh-HK"
+market = "HK"
+interval_seconds = 900
+max_items = 50
+enabled = true
+provider_name = "香港01"
+provider_kind = "publisher"
+[sources.endpoint]
+adapter = "hk01_latest"
+url = "https://web-data.api.hk01.com/v2/page/latest"
+
+[[sources]]
+id = "hkej"
+provider_id = "hkej"
+channel_id = "instant"
+channel_label = "即時"
+channel_role = "aggregate"
+stream_kind = "latest"
+item_kind = "article"
+topics = ["business", "markets", "hong-kong"]
+surfaces = ["news"]
+language = "zh-HK"
+market = "HK"
+interval_seconds = 900
+max_items = 50
+enabled = true
+provider_name = "信報"
+provider_kind = "publisher"
+[sources.endpoint]
+adapter = "hkej_instant"
+url = "https://www.hkej.com/instantnews"
+
+[[sources]]
+id = "am730"
+provider_id = "am730"
+channel_id = "news"
+channel_label = "新聞"
+channel_role = "aggregate"
+stream_kind = "latest"
+item_kind = "article"
+topics = ["hong-kong"]
+surfaces = ["news"]
+language = "zh-HK"
+market = "HK"
+interval_seconds = 900
+max_items = 50
+enabled = true
+provider_name = "am730"
+provider_kind = "publisher"
+[sources.endpoint]
+adapter = "am730_news"
+url = "https://www.am730.com.hk/"
+
+[[sources]]
+id = "oncc"
+provider_id = "oncc"
+channel_id = "news"
+channel_label = "新聞"
+channel_role = "aggregate"
+stream_kind = "latest"
+item_kind = "article"
+topics = ["hong-kong"]
+surfaces = ["news"]
+language = "zh-HK"
+market = "HK"
+interval_seconds = 900
+max_items = 50
+enabled = true
+provider_name = "東網"
+provider_kind = "publisher"
+[sources.endpoint]
+adapter = "oncc_news"
+url = "https://hk.on.cc/hk/news/index.html"
+
+[[sources]]
+id = "wenweipo"
+provider_id = "wenweipo"
+channel_id = "news"
+channel_label = "新聞"
+channel_role = "aggregate"
+stream_kind = "latest"
+item_kind = "article"
+topics = ["hong-kong", "china"]
+surfaces = ["news"]
+language = "zh-HK"
+market = "HK"
+interval_seconds = 900
+max_items = 50
+enabled = true
+provider_name = "文匯報"
+provider_kind = "publisher"
+[sources.endpoint]
+adapter = "wenweipo_news"
+url = "https://www.wenweipo.com/"
+
+[[sources]]
+id = "tkww"
+provider_id = "tkww"
+channel_id = "news"
+channel_label = "新聞"
+channel_role = "aggregate"
+stream_kind = "latest"
+item_kind = "article"
+topics = ["hong-kong", "china"]
+surfaces = ["news"]
+language = "zh-HK"
+market = "HK"
+interval_seconds = 900
+max_items = 50
+enabled = true
+provider_name = "大公文匯網"
+provider_kind = "publisher"
+[sources.endpoint]
+adapter = "tkww_news"
+url = "https://www.tkww.hk/"
+
+[[sources]]
+id = "now-news"
+provider_id = "now-news"
+channel_id = "rank"
+channel_label = "排行"
+channel_role = "aggregate"
+stream_kind = "latest"
+item_kind = "article"
+topics = ["hong-kong"]
+surfaces = ["news"]
+language = "zh-HK"
+market = "HK"
+interval_seconds = 900
+max_items = 30
+enabled = true
+provider_name = "Now新聞"
+provider_kind = "publisher"
+[sources.endpoint]
+adapter = "now_news"
+url = "https://newsapi1.now.com/pccw-news-api/api/getRankNewsList"
+
+[[sources]]
+id = "govhk-news"
+provider_id = "govhk"
+channel_id = "news"
+channel_label = "新聞"
+channel_role = "aggregate"
+stream_kind = "latest"
+item_kind = "article"
+topics = ["hong-kong", "politics"]
+surfaces = ["news"]
+language = "zh-HK"
+market = "HK"
+interval_seconds = 900
+max_items = 100
+enabled = true
+provider_name = "香港政府新聞網"
+provider_kind = "government"
+[sources.endpoint]
+adapter = "rss"
+url = "https://www.news.gov.hk/tc/common/html/ticker.rss.xml"
+
+[[sources]]
+id = "scmp-directory"
+provider_id = "scmp"
+channel_id = "feed"
+channel_label = "All"
+channel_role = "aggregate"
+stream_kind = "latest"
+item_kind = "article"
+topics = ["hong-kong"]
+surfaces = ["news"]
+language = "en-HK"
+market = "HK"
+interval_seconds = 900
+max_items = 100
+enabled = true
+provider_name = "SCMP"
+provider_kind = "publisher"
+[sources.redirect]
+allow_https_downgrade = true
+[sources.endpoint]
+adapter = "rss"
+url = "https://www.scmp.com/rss/91/feed"
+
+[[sources]]
+id = "hkfp-latest"
+provider_id = "hkfp"
+channel_id = "latest"
+channel_label = "Latest"
+channel_role = "aggregate"
+stream_kind = "latest"
+item_kind = "article"
+topics = ["hong-kong"]
+surfaces = ["news"]
+language = "en-HK"
+market = "HK"
+interval_seconds = 900
+max_items = 30
+enabled = true
+provider_name = "Hong Kong Free Press"
+provider_kind = "publisher"
+[sources.endpoint]
+adapter = "rss"
+url = "https://hongkongfp.com/feed"
+
+[[sources]]
+id = "thestandard-latest"
+provider_id = "thestandard"
+channel_id = "latest"
+channel_label = "Latest"
+channel_role = "aggregate"
+stream_kind = "latest"
+item_kind = "article"
+topics = ["hong-kong"]
+surfaces = ["news"]
+language = "en-HK"
+market = "HK"
+interval_seconds = 900
+max_items = 50
+enabled = true
+provider_name = "The Standard"
+provider_kind = "publisher"
+[sources.endpoint]
+adapter = "thestandard_news"
+url = "https://www.thestandard.com.hk/news"

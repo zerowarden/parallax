@@ -7,13 +7,12 @@ from urllib.parse import urljoin
 from selectolax.parser import HTMLParser
 
 from parallax.adapters.common.http import html_request
-from parallax.adapters.common.options import option_int
 from parallax.adapters.common.parsing import (
     decode_html,
     parse_relative_time,
     text,
 )
-from parallax.config import SourceConfig
+from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
@@ -33,13 +32,13 @@ class TkwwNewsAdapter:
     the raw label preserved.
     """
 
-    def build_request(self, source: SourceConfig) -> RequestSpec:
+    def build_request(self, source: Source) -> RequestSpec:
         return html_request(source)
 
-    def parse(self, source: SourceConfig, response: HttpResponse) -> ParsedBatch:
+    def parse(self, source: Source, response: HttpResponse) -> ParsedBatch:
         tree = HTMLParser(decode_html(response.content, label="Takungpao"))
 
-        max_items = option_int(source, "max_items", 50)
+        max_items = source.max_items
         candidates: list[HeadlineCandidate] = []
         seen: set[str] = set()
         for card in tree.css("div.story-list-unit-inner"):
@@ -60,7 +59,7 @@ class TkwwNewsAdapter:
             external_id = text(story.attributes.get("data-storyid")) if story else ""
             age = AGE_LABEL.search(card.text(separator=" ", strip=True))
             raw_published = age.group(0) if age is not None else ""
-            metrics: dict[str, Any] = {"stream_kind": source.stream_kind}
+            metrics: dict[str, Any] = {}
             candidates.append(
                 HeadlineCandidate(
                     title=title,

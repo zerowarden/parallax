@@ -3,9 +3,8 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import UTC, datetime
 
-from parallax.adapters.common.options import option_int
 from parallax.adapters.common.rss import parse_feed_candidates
-from parallax.config import SourceConfig
+from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
@@ -39,7 +38,7 @@ class HketRssAdapter:
     ordered newest first, with positions reassigned to the merged order.
     """
 
-    def build_requests(self, source: SourceConfig) -> tuple[RequestSpec, ...]:
+    def build_requests(self, source: Source) -> tuple[RequestSpec, ...]:
         return tuple(
             RequestSpec(
                 method="GET",
@@ -57,7 +56,7 @@ class HketRssAdapter:
 
     def parse_responses(
         self,
-        source: SourceConfig,
+        source: Source,
         responses: tuple[HttpResponse, ...],
     ) -> ParsedBatch:
         merged: list[HeadlineCandidate] = []
@@ -75,7 +74,7 @@ class HketRssAdapter:
                 merged.append(candidate)
 
         merged.sort(key=_recency, reverse=True)
-        max_items = option_int(source, "max_items", 100)
+        max_items = source.max_items
         candidates = tuple(
             replace(candidate, position=position)
             for position, candidate in enumerate(merged[:max_items], start=1)

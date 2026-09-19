@@ -11,7 +11,7 @@ from rich.console import Console
 
 from parallax.adapters import AdapterRegistry
 from parallax.adapters.base import AdapterLookup
-from parallax.config import IngestionConfig, SourceConfig, ValidationConfig
+from parallax.config import IngestionConfig, Source, ValidationConfig
 from parallax.diagnostics import (
     ACCESS_BLOCKED,
     CONFIGURATION_BROKEN,
@@ -29,6 +29,7 @@ from parallax.ingest import IngestionService
 from parallax.presentation import Presenter
 from parallax.storage import Storage
 from parallax.validation import BatchValidator
+from source_factory import make_source
 
 OBSERVED_AT = datetime(2026, 9, 18, 12, 0, tzinfo=UTC)
 
@@ -41,7 +42,7 @@ class ScriptedTransport:
     def request(
         self,
         spec: RequestSpec,
-        source: SourceConfig,
+        source: Source,
         state: StreamState,
     ) -> HttpResponse:
         self.requests.append(spec)
@@ -51,20 +52,21 @@ class ScriptedTransport:
         return item
 
 
-def _source(adapter: str, url: str, **options: object) -> SourceConfig:
-    return SourceConfig(
-        id="fixture",
-        name="Fixture",
-        region="CN",
-        language="zh-CN",
+def _source(adapter: str, url: str, **options: object) -> Source:
+    raw_max_items = options.pop("max_items", 30)
+    max_items = raw_max_items if isinstance(raw_max_items, int) else 30
+    return make_source(
         adapter=adapter,
         url=url,
+        max_items=max_items,
         options=dict(options),
+        language="zh-CN",
+        market="CN",
     )
 
 
 def _response(
-    source: SourceConfig,
+    source: Source,
     payload: bytes,
     *,
     status_code: int = 200,
@@ -72,7 +74,7 @@ def _response(
 ) -> HttpResponse:
     return HttpResponse(
         status_code=status_code,
-        url=source.url,
+        url=source.endpoint.url,
         headers=dict(headers or {}),
         content=payload,
         observed_at=OBSERVED_AT,
@@ -139,7 +141,7 @@ def test_diagnose_quiet_when_upstream_not_modified(tmp_path: Path):
         [
             HttpResponse(
                 status_code=304,
-                url=source.url,
+                url=source.endpoint.url,
                 headers={"etag": '"v1"'},
                 content=b"",
                 observed_at=OBSERVED_AT,
@@ -289,11 +291,8 @@ def test_diagnose_reports_last_change_after_ingestion(
     fixtures_dir: Path,
     tmp_path: Path,
 ):
-    source = SourceConfig(
+    source = make_source(
         id="fixture-rss",
-        name="Fixture RSS",
-        region="US",
-        language="en-US",
         adapter="rss",
         url="https://example.com/rss.xml",
     )

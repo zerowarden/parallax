@@ -3,9 +3,8 @@ from __future__ import annotations
 from typing import Any
 
 from parallax.adapters.common.http import json_request
-from parallax.adapters.common.options import option_int
 from parallax.adapters.common.parsing import decode_json_object, text
-from parallax.config import SourceConfig
+from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
@@ -16,10 +15,10 @@ from parallax.parsing import parse_timestamp
 
 
 class ThePaperHotAdapter:
-    def build_request(self, source: SourceConfig) -> RequestSpec:
+    def build_request(self, source: Source) -> RequestSpec:
         return json_request(source)
 
-    def parse(self, source: SourceConfig, response: HttpResponse) -> ParsedBatch:
+    def parse(self, source: Source, response: HttpResponse) -> ParsedBatch:
         payload = decode_json_object(response.content, label="The Paper")
 
         if payload.get("resultCode") != 1:
@@ -31,7 +30,7 @@ class ThePaperHotAdapter:
         if not isinstance(hot_news, list):
             raise ValueError("The Paper response does not contain data.hotNews")
 
-        max_items = option_int(source, "max_items", 30)
+        max_items = source.max_items
         candidates: list[HeadlineCandidate] = []
         for position, item in enumerate(hot_news[:max_items], start=1):
             if not isinstance(item, dict):
@@ -39,7 +38,7 @@ class ThePaperHotAdapter:
             cont_id = text(item.get("contId"))
             title = text(item.get("name"))
             raw_published = item.get("pubTimeLong")
-            metrics: dict[str, Any] = {"stream_kind": source.stream_kind}
+            metrics: dict[str, Any] = {}
             if item.get("praiseTimes") is not None:
                 metrics["praise_times"] = item.get("praiseTimes")
 

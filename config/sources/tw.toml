@@ -1,0 +1,125 @@
+[[sources]]
+id = "cna-tw-politics"
+provider_id = "cna-taiwan"
+channel_id = "politics"
+channel_label = "政治"
+channel_role = "section"
+stream_kind = "latest"
+item_kind = "article"
+topics = ["taiwan", "politics"]
+surfaces = ["news"]
+language = "zh-TW"
+market = "TW"
+interval_seconds = 1800
+max_items = 100
+enabled = true
+provider_name = "中央通訊社"
+provider_kind = "publisher"
+[sources.endpoint]
+adapter = "rss"
+url = "https://feeds.feedburner.com/rsscna/politics"
+
+[[sources]]
+id = "cna-tw-world"
+provider_id = "cna-taiwan"
+channel_id = "world"
+channel_label = "國際"
+channel_role = "section"
+stream_kind = "latest"
+item_kind = "article"
+topics = ["world"]
+surfaces = ["news"]
+language = "zh-TW"
+market = "TW"
+interval_seconds = 1800
+max_items = 100
+enabled = true
+provider_name = "中央通訊社"
+provider_kind = "publisher"
+[sources.endpoint]
+adapter = "rss"
+url = "https://feeds.feedburner.com/rsscna/intworld"
+
+[[sources]]
+id = "cna-tw-mainland"
+provider_id = "cna-taiwan"
+channel_id = "mainland"
+channel_label = "兩岸"
+channel_role = "section"
+stream_kind = "latest"
+item_kind = "article"
+topics = ["china", "taiwan"]
+surfaces = ["news"]
+language = "zh-TW"
+market = "TW"
+interval_seconds = 1800
+max_items = 100
+enabled = true
+provider_name = "中央通訊社"
+provider_kind = "publisher"
+[sources.endpoint]
+adapter = "rss"
+url = "https://feeds.feedburner.com/rsscna/mainland"
+
+[[sources]]
+id = "cna-tw-finance"
+provider_id = "cna-taiwan"
+channel_id = "finance"
+channel_label = "產經證券"
+channel_role = "section"
+stream_kind = "latest"
+item_kind = "article"
+topics = ["business", "markets", "taiwan"]
+surfaces = ["news"]
+language = "zh-TW"
+market = "TW"
+interval_seconds = 1800
+max_items = 100
+enabled = true
+provider_name = "中央通訊社"
+provider_kind = "publisher"
+[sources.endpoint]
+adapter = "rss"
+url = "https://feeds.feedburner.com/rsscna/finance"
+
+[[sources]]
+id = "cna-tw-tech"
+provider_id = "cna-taiwan"
+channel_id = "tech"
+channel_label = "科技"
+channel_role = "section"
+stream_kind = "latest"
+item_kind = "article"
+topics = ["technology", "taiwan"]
+surfaces = ["news"]
+language = "zh-TW"
+market = "TW"
+interval_seconds = 1800
+max_items = 100
+enabled = true
+provider_name = "中央通訊社"
+provider_kind = "publisher"
+[sources.endpoint]
+adapter = "rss"
+url = "https://feeds.feedburner.com/rsscna/technology"
+
+[[sources]]
+id = "ltn-all"
+provider_id = "ltn"
+channel_id = "all"
+channel_label = "即時"
+channel_role = "aggregate"
+stream_kind = "latest"
+item_kind = "article"
+topics = ["taiwan"]
+surfaces = ["news"]
+language = "zh-TW"
+market = "TW"
+interval_seconds = 1800
+max_items = 100
+enabled = true
+provider_name = "自由時報"
+provider_kind = "publisher"
+[sources.endpoint]
+adapter = "rss"
+url = "https://news.ltn.com.tw/rss/all.xml"

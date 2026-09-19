@@ -7,14 +7,14 @@ from urllib.parse import urlsplit
 import pytest
 
 from parallax.adapters.base import SourceAdapter
-from parallax.config import SourceConfig
+from parallax.config import Source
 from parallax.domain import HeadlineCandidate, HttpResponse, ParsedBatch
 
 OBSERVED_AT = datetime(2026, 9, 18, 12, 0, tzinfo=UTC)
 
 
 def response_for(
-    source: SourceConfig,
+    source: Source,
     payload: bytes,
     *,
     status_code: int = 200,
@@ -25,7 +25,7 @@ def response_for(
     """Build an in-memory upstream response for parser tests."""
     return HttpResponse(
         status_code=status_code,
-        url=source.url,
+        url=source.endpoint.url,
         headers=dict(headers or {}),
         content=payload,
         observed_at=observed_at,
@@ -63,7 +63,7 @@ def assert_batch_contract(batch: ParsedBatch, *, min_items: int = 1) -> None:
 
 def assert_parse_rejects(
     adapter: SourceAdapter,
-    source: SourceConfig,
+    source: Source,
     payload: bytes,
     *,
     match: str | None = None,

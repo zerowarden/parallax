@@ -3,6 +3,7 @@ from __future__ import annotations
 import tomllib
 from importlib.metadata import version
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 from pydantic import ValidationError
@@ -12,105 +13,23 @@ from parallax.adapters import AdapterRegistry
 from parallax.adapters.common.options import option_int
 from parallax.config import (
     AppConfig,
+    AuthConfig,
+    CatalogError,
     HttpConfig,
     IngestionConfig,
     RedirectPolicyConfig,
-    SourceConfig,
-    load_settings,
+    Source,
+    SourceDefinition,
+    load_catalog,
 )
+from source_factory import make_source
 
-NATIVE_SOURCES = {
-    "tencent-hot": "tencent_hot",
-    "zhihu": "zhihu_hot",
-    "toutiao": "toutiao_hot",
-    "bilibili-hot-search": "bilibili_hot_search",
-    "solidot": "rss",
-    "juejin": "juejin_hot",
-    "dongqiudi": "dongqiudi_news",
-    "producthunt": "rss",
-    "chongbuluo-latest": "rss",
-    "mktnews-flash": "mktnews_flash",
-    "douban": "douban_hot_movies",
-    "ithome": "ithome_news",
-    "jin10": "jin10_flash",
-    "nowcoder": "nowcoder_hot",
-    "iqiyi-hot-ranklist": "iqiyi_hot_ranklist",
-    "baidu": "baidu_hot_search",
-    "ifeng": "ifeng_hot",
-    "v2ex-share": "v2ex_share",
-    "chongbuluo-hot": "chongbuluo_hot",
-    "hupu": "hupu_hot",
-    "sputnik-news": "sputnik_news",
-    "fastbull-express": "fastbull_express",
-    "fastbull-news": "fastbull_news",
-    "zaobao": "zaobao_realtime",
-    "gelonghui": "gelonghui_news",
-    "36kr-quick": "kr36_quick",
-    "github-trending-today": "github_trending",
-    "steam": "steam_players",
-    "kuaishou": "kuaishou_hot",
-    "cls-telegraph": "cls_telegraph",
-    "cls-depth": "cls_depth",
-    "cls-hot": "cls_hot",
-    "coolapk": "coolapk_hot",
-    "douyin": "douyin_hot",
-    "xueqiu-hotstock": "xueqiu_hotstock",
-    "wallstreetcn-quick": "wallstreetcn_quick",
-    "wallstreetcn-news": "wallstreetcn_news",
-    "wallstreetcn-hot": "wallstreetcn_hot",
-    "cankaoxiaoxi": "cankaoxiaoxi_news",
-    "tieba": "tieba_hot",
-    "weibo": "weibo_hot",
-    "sspai": "sspai_hot",
-    "hackernews": "hackernews_hot",
-    "hn-new": "hackernews_hot",
-    "mingpao-realtime": "mingpao_rss",
-    "kaopu": "kaopu_news",
-    "qqvideo-tv-hotsearch": "qqvideo_hot_search",
-    "bilibili-hot-video": "bilibili_hot_video",
-    "bilibili-ranking": "bilibili_ranking",
-    "hket-directory": "hket_rss",
-    "hkej": "hkej_instant",
-    "am730": "am730_news",
-    "oncc": "oncc_news",
-    "wenweipo": "wenweipo_news",
-    "tkww": "tkww_news",
-    "now-news": "now_news",
-    "scmp-directory": "rss",
-    "hkfp-latest": "rss",
-    "thestandard-latest": "thestandard_news",
-}
-EXCLUDED_SOURCE_IDS = frozenset(
-    {"36kr-renqi", "inmedia", "tvb-news", "thewitness-latest"}
-)
-
-FLASH_SOURCE_IDS = frozenset(
-    {
-        "mktnews-flash",
-        "wallstreetcn-quick",
-        "36kr-quick",
-        "cls-telegraph",
-        "fastbull-express",
-        "jin10",
-    }
-)
-
-ITEM_KINDS = frozenset(
-    {
-        "article",
-        "flash",
-        "game",
-        "movie",
-        "post",
-        "product",
-        "ranking",
-        "repository",
-        "trend",
-        "video",
-    }
-)
-
+CONFIG_ROOT = Path("config/config.toml")
 REQUIRED_DOCUMENTS = ("README.md",)
+
+
+def _catalog():
+    return load_catalog(Path(__file__).resolve().parents[1] / CONFIG_ROOT)
 
 
 def test_required_documents_exist(project_root: Path):
@@ -121,145 +40,57 @@ def test_required_documents_exist(project_root: Path):
     assert not missing, f"required repository documents missing: {missing}"
 
 
-def test_release_registry_contains_only_resolvable_streams():
-    root = Path(__file__).resolve().parents[1]
-    settings = load_settings(root / "config.toml")
-
-    assert len(settings.sources) == 91
-    assert len({source.id for source in settings.sources}) == len(settings.sources)
-    assert not ({source.id for source in settings.sources} & EXCLUDED_SOURCE_IDS)
-    assert all(source.adapter != "unsupported" for source in settings.sources)
-    assert {source.id for source in settings.sources if not source.enabled} == {
-        "36kr-quick",
-        "kuaishou",
-    }
-
+def test_checked_in_catalog_loads_and_uses_known_adapters() -> None:
+    config = _catalog()
     registry = AdapterRegistry()
-    for adapter in {source.adapter for source in settings.sources}:
-        registry.get(adapter)
+    for source in config.sources:
+        registry.validate_source(source)
 
 
-def test_registry_contains_hong_kong_and_catalog_sources():
-    root = Path(__file__).resolve().parents[1]
-    settings = load_settings(root / "config.toml")
-    ids = {source.id for source in settings.sources}
+def test_unknown_source_kinds_are_rejected() -> None:
+    payload = _source_payload(item_kind="article", stream_kind="unknown")
 
-    assert "mingpao-realtime" in ids
-    assert "hk01-latest" in ids
-    assert "hkej" in ids
-    assert "zhihu" in ids
-    assert "weibo" in ids
-
-
-def test_checked_in_registry_uses_closed_kind_vocabulary() -> None:
-    root = Path(__file__).resolve().parents[1]
-    sources = load_settings(root / "config.toml").sources
-
-    assert {source.stream_kind for source in sources} == {"latest", "hot"}
-    assert {source.item_kind for source in sources} == ITEM_KINDS
-
-
-def test_flash_streams_are_classified_as_flash() -> None:
-    root = Path(__file__).resolve().parents[1]
-    sources = {
-        source.id: source for source in load_settings(root / "config.toml").sources
-    }
-
-    assert all(
-        sources[source_id].item_kind == "flash" for source_id in FLASH_SOURCE_IDS
-    )
+    with pytest.raises(ValidationError, match="stream_kind"):
+        SourceDefinition.model_validate(payload)
 
 
 @pytest.mark.parametrize(
-    ("source_id", "item_kind"),
+    "overrides",
     [
-        ("thepaper-hot", "article"),
-        ("xueqiu-hotstock", "ranking"),
-        ("github-trending-today", "repository"),
-        ("zhihu", "trend"),
-        ("steam", "game"),
-        ("douban", "movie"),
-        ("producthunt", "product"),
-        ("hackernews", "post"),
-        ("bilibili-hot-video", "video"),
+        {"item_kind": "entity", "entity_kind": None},
+        {"item_kind": "article", "entity_kind": "game"},
+        {"item_kind": "post", "item_variant": "flash", "entity_kind": None},
+        {"item_kind": "article", "entity_kind": None, "item_variant": "unknown"},
     ],
 )
-def test_representative_sources_keep_their_item_kind(
-    source_id: str, item_kind: str
+def test_conditional_ontology_rules_are_enforced(
+    overrides: dict[str, object],
 ) -> None:
-    root = Path(__file__).resolve().parents[1]
-    sources = {
-        source.id: source for source in load_settings(root / "config.toml").sources
-    }
+    payload = _source_payload(**overrides)
 
-    assert sources[source_id].item_kind == item_kind
+    with pytest.raises(ValidationError):
+        SourceDefinition.model_validate(payload)
 
 
-@pytest.mark.parametrize(
-    ("field", "value"),
-    [("stream_kind", "unknown"), ("item_kind", "unknown")],
-)
-def test_unknown_source_kinds_are_rejected(field: str, value: str) -> None:
-    payload = {
-        "id": "fixture",
-        "name": "Fixture",
-        "region": "CN",
-        "language": "zh-CN",
-        "adapter": "rss",
-        "url": "https://example.test/feed.xml",
-        field: value,
-    }
+def test_entity_sources_require_an_entity_kind() -> None:
+    payload = _source_payload(item_kind="entity", entity_kind="security")
 
-    with pytest.raises(ValidationError, match=field):
-        SourceConfig.model_validate(payload)
+    definition = SourceDefinition.model_validate(payload)
+    assert definition.entity_kind == "security"
 
 
-@pytest.mark.parametrize(("source_id", "adapter"), sorted(NATIVE_SOURCES.items()))
-def test_native_sources_use_configured_adapters(
-    source_id: str,
-    adapter: str,
-):
-    root = Path(__file__).resolve().parents[1]
-    settings = load_settings(root / "config.toml")
-    by_id = {source.id: source for source in settings.sources}
+def test_surfaces_are_required() -> None:
+    payload = _source_payload(surfaces=[])
 
-    source = by_id[source_id]
-    assert source.adapter == adapter
+    with pytest.raises(ValidationError, match="surfaces"):
+        SourceDefinition.model_validate(payload)
 
 
-@pytest.mark.parametrize(
-    ("source_id", "url", "stream_kind"),
-    [
-        ("hackernews", "https://news.ycombinator.com/", "hot"),
-        ("hn-new", "https://news.ycombinator.com/newest", "latest"),
-    ],
-)
-def test_hacker_news_streams_use_public_html_listings(
-    source_id: str, url: str, stream_kind: str
-) -> None:
-    root = Path(__file__).resolve().parents[1]
-    sources = {
-        source.id: source for source in load_settings(root / "config.toml").sources
-    }
+def test_topics_must_be_lowercase_slugs() -> None:
+    payload = _source_payload(topics=["Business"])
 
-    source = sources[source_id]
-
-    assert source.adapter == "hackernews_hot"
-    assert source.url == url
-    assert source.stream_kind == stream_kind
-    assert source.retrieval_method == "unofficial_web_html"
-    assert source.enabled
-
-
-def test_release_metadata_matches_installed_package(project_root: Path) -> None:
-    with (project_root / "pyproject.toml").open("rb") as handle:
-        pyproject = tomllib.load(handle)
-
-    expected = pyproject["project"]["version"]
-
-    assert isinstance(expected, str)
-    assert __version__ == expected
-    assert version("parallax") == expected
+    with pytest.raises(ValidationError, match="lowercase slug"):
+        SourceDefinition.model_validate(payload)
 
 
 def test_unknown_configuration_fields_are_rejected() -> None:
@@ -322,76 +153,253 @@ def test_redirect_policy_normalizes_exact_hosts() -> None:
 
 
 def test_source_redirect_defaults_to_no_cross_authority_or_downgrade() -> None:
-    source = SourceConfig(
-        id="fixture",
-        name="Fixture",
-        region="CN",
-        language="zh-CN",
-        adapter="rss",
-        url="https://example.test/feed.xml",
-    )
+    source = make_source()
 
     assert source.redirect.allowed_hosts == ()
     assert source.redirect.allow_https_downgrade is False
 
 
-@pytest.mark.parametrize(
-    ("source_id", "allowed_hosts", "allow_https_downgrade"),
-    [
-        ("bloomberg-markets", ("www.bloomberg.com",), False),
-        ("xueqiu-hotstock", ("www.xueqiu.com",), False),
-        ("rthk-local-zh", ("rthk9.rthk.hk",), True),
-        ("rthk-greaterchina", ("rthk9.rthk.hk",), True),
-        ("rthk-cinternational", ("rthk9.rthk.hk",), True),
-        ("rthk-cfinance", ("rthk9.rthk.hk",), True),
-        ("rthk-csport", ("rthk9.rthk.hk",), True),
-        ("scmp-directory", (), True),
-    ],
-)
-def test_redirect_sources_have_exact_approved_policy(
-    source_id: str,
-    allowed_hosts: tuple[str, ...],
-    allow_https_downgrade: bool,
-) -> None:
-    root = Path(__file__).resolve().parents[1]
-    sources = {
-        source.id: source for source in load_settings(root / "config.toml").sources
-    }
-
-    assert sources[source_id].redirect.allowed_hosts == allowed_hosts
-    assert sources[source_id].redirect.allow_https_downgrade is allow_https_downgrade
-
-
 def test_registry_rejects_unknown_adapter_and_options() -> None:
     registry = AdapterRegistry()
-    source = SourceConfig(
-        id="fixture",
-        name="Fixture",
-        region="CN",
-        language="zh-CN",
-        adapter="rss",
-        url="https://example.test/feed.xml",
-        options={"max_item": 10},
-    )
+    source = make_source(options={"history_max_page": 10})
 
-    with pytest.raises(ValueError, match="Unknown options.*max_item"):
+    with pytest.raises(ValueError, match="Unknown options.*history_max_page"):
         registry.validate_source(source)
 
-    source.adapter = "missing"
+    missing = make_source(adapter="missing")
     with pytest.raises(KeyError, match="Unknown adapter"):
-        registry.validate_source(source)
+        registry.validate_source(missing)
 
 
 @pytest.mark.parametrize("value", [True, 1.5, "5", 0, -1])
 def test_integer_options_reject_invalid_or_coerced_values(value: object) -> None:
-    source = SourceConfig(
-        id="fixture",
-        name="Fixture",
-        region="CN",
-        language="zh-CN",
-        adapter="rss",
-        url="https://example.test/feed.xml",
-        options={"max_items": value},
-    )
+    source = make_source(options={"history_max_pages": value})
+
     with pytest.raises(ValueError, match="must be"):
-        option_int(source, "max_items", default=10)
+        option_int(source, "history_max_pages", default=10)
+
+
+def test_auth_requires_environment_backed_secret() -> None:
+    with pytest.raises(ValidationError, match="auth.env_var"):
+        AuthConfig(kind="bearer")
+
+    with pytest.raises(ValidationError, match="auth.name"):
+        AuthConfig(kind="header", env_var="PARALLAX_TOKEN")
+
+
+def test_release_metadata_matches_installed_package(project_root: Path) -> None:
+    with (project_root / "pyproject.toml").open("rb") as handle:
+        pyproject = tomllib.load(handle)
+
+    expected = pyproject["project"]["version"]
+
+    assert isinstance(expected, str)
+    assert __version__ == expected
+    assert version("parallax") == expected
+
+
+def test_root_manifest_contains_only_package_settings() -> None:
+    with CONFIG_ROOT.open("rb") as handle:
+        raw = tomllib.load(handle)
+
+    assert raw["schema_version"] == 0
+    assert set(raw) == {
+        "schema_version",
+        "app",
+        "http",
+        "ingestion",
+        "scheduler",
+        "validation",
+    }
+
+
+def _source_payload(**overrides: object) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "id": "fixture",
+        "provider_id": "fixture",
+        "provider_name": "Fixture Provider",
+        "provider_kind": "publisher",
+        "channel_id": "main",
+        "channel_label": "Fixture",
+        "channel_role": "aggregate",
+        "stream_kind": "latest",
+        "item_kind": "article",
+        "topics": [],
+        "surfaces": ["news"],
+        "language": "en-GB",
+        "market": "GB",
+        "interval_seconds": 1800,
+        "max_items": 100,
+        "endpoint": {
+            "adapter": "rss",
+            "url": "https://example.test/feed.xml",
+        },
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_source_definition_rejects_non_http_endpoint_urls() -> None:
+    payload = _source_payload(
+        endpoint={"adapter": "rss", "url": "ftp://example.test/feed.xml"}
+    )
+
+    with pytest.raises(ValidationError, match="absolute HTTP"):
+        SourceDefinition.model_validate(payload)
+
+
+def test_source_definition_rejects_invalid_language_tags() -> None:
+    payload = _source_payload(language="english")
+
+    with pytest.raises(ValidationError, match="BCP-47"):
+        SourceDefinition.model_validate(payload)
+
+
+def test_source_definition_rejects_invalid_market_codes() -> None:
+    payload = _source_payload(market="gb")
+
+    with pytest.raises(ValidationError, match="uppercase"):
+        SourceDefinition.model_validate(payload)
+
+
+def _write_toml(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+
+
+def _write_root(
+    base: Path,
+    *,
+    schema_version: int = 0,
+) -> Path:
+    _write_toml(
+        base / "config.toml",
+        f"schema_version = {schema_version}\n",
+    )
+    return base / "config.toml"
+
+
+def _source_toml(
+    source_id: str,
+    *,
+    url: str = "https://example.test/a.xml",
+    provider_name: str = "Fixture Provider",
+) -> str:
+    return (
+        "[[sources]]\n"
+        f'id = "{source_id}"\n'
+        'provider_id = "fixture"\n'
+        f'provider_name = "{provider_name}"\n'
+        'provider_kind = "publisher"\n'
+        'channel_id = "main"\n'
+        'channel_label = "Main"\n'
+        'channel_role = "aggregate"\n'
+        'stream_kind = "latest"\n'
+        'item_kind = "article"\n'
+        'topics = ["business"]\n'
+        'surfaces = ["news"]\n'
+        'language = "en-GB"\n'
+        'market = "GB"\n'
+        "interval_seconds = 1800\n"
+        "max_items = 100\n"
+        "[sources.endpoint]\n"
+        'adapter = "rss"\n'
+        f'url = "{url}"\n'
+    )
+
+
+def test_loader_discovers_and_sorts_sources_without_path_semantics(
+    tmp_path: Path,
+) -> None:
+    base = tmp_path / "catalog"
+    _write_root(base)
+    _write_toml(base / "sources" / "top.toml", _source_toml("beta"))
+    _write_toml(
+        base / "sources" / "arbitrary" / "nested" / "source.toml",
+        _source_toml("alpha"),
+    )
+
+    config = load_catalog(base / "config.toml")
+
+    assert [source.id for source in config.sources] == ["alpha", "beta"]
+    assert config.source("alpha").defined_in == "arbitrary/nested/source.toml"
+
+
+def test_loader_rejects_duplicate_ids(tmp_path: Path) -> None:
+    base = tmp_path / "catalog"
+    _write_root(base)
+    _write_toml(base / "sources" / "a.toml", _source_toml("alpha"))
+    _write_toml(base / "sources" / "b.toml", _source_toml("alpha"))
+
+    with pytest.raises(CatalogError, match="duplicate source id"):
+        load_catalog(base / "config.toml")
+
+
+def test_loader_rejects_inconsistent_provider_metadata(tmp_path: Path) -> None:
+    base = tmp_path / "catalog"
+    _write_root(base)
+    _write_toml(base / "sources" / "a.toml", _source_toml("alpha"))
+    _write_toml(
+        base / "sources" / "b.toml",
+        _source_toml("beta", provider_name="Other Provider"),
+    )
+
+    with pytest.raises(CatalogError, match="declared inconsistently"):
+        load_catalog(base / "config.toml")
+
+
+def test_loader_rejects_wrong_schema_version(tmp_path: Path) -> None:
+    base = tmp_path / "catalog"
+    _write_root(base, schema_version=1)
+
+    with pytest.raises(CatalogError, match="schema_version"):
+        load_catalog(base / "config.toml")
+
+
+def test_loader_rejects_recursive_includes(tmp_path: Path) -> None:
+    base = tmp_path / "catalog"
+    _write_root(base)
+    _write_toml(
+        base / "sources" / "a.toml",
+        'include = ["b.toml"]\n' + _source_toml("alpha"),
+    )
+
+    with pytest.raises(CatalogError, match="extra_forbidden"):
+        load_catalog(base / "config.toml")
+
+
+def test_loader_requires_a_sources_directory(tmp_path: Path) -> None:
+    base = tmp_path / "catalog"
+    _write_root(base)
+
+    with pytest.raises(CatalogError, match="sources directory"):
+        load_catalog(base / "config.toml")
+
+
+def test_loader_resolves_relative_app_paths_from_root(tmp_path: Path) -> None:
+    base = tmp_path / "catalog"
+    _write_root(base)
+    _write_toml(base / "sources" / "a.toml", _source_toml("alpha"))
+
+    config = load_catalog(base / "config.toml")
+
+    assert config.app.database_path == (base / "data/parallax.db").resolve()
+
+
+def test_loaded_sources_are_frozen() -> None:
+    config = _catalog()
+    source = config.source("ft-home")
+
+    with pytest.raises(ValidationError):
+        source.enabled = False
+
+    with pytest.raises(ValidationError):
+        config.http.max_attempts = 99
+
+    with pytest.raises(TypeError):
+        cast(Any, source.headers)["X-Test"] = "value"
+
+    with pytest.raises(TypeError):
+        cast(Any, source.endpoint.options)["test"] = True
+
+    assert isinstance(source, Source)

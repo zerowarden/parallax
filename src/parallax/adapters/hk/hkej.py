@@ -6,9 +6,8 @@ from urllib.parse import urljoin
 from selectolax.parser import HTMLParser
 
 from parallax.adapters.common.http import html_request
-from parallax.adapters.common.options import option_int
 from parallax.adapters.common.parsing import decode_html, text
-from parallax.config import SourceConfig
+from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
@@ -29,13 +28,13 @@ class HkejInstantAdapter:
     ``published_at`` stays ``None``.
     """
 
-    def build_request(self, source: SourceConfig) -> RequestSpec:
+    def build_request(self, source: Source) -> RequestSpec:
         return html_request(source)
 
-    def parse(self, source: SourceConfig, response: HttpResponse) -> ParsedBatch:
+    def parse(self, source: Source, response: HttpResponse) -> ParsedBatch:
         tree = HTMLParser(decode_html(response.content, label="HKEJ"))
 
-        max_items = option_int(source, "max_items", 50)
+        max_items = source.max_items
         candidates: list[HeadlineCandidate] = []
         seen: set[str] = set()
         for link in tree.css("h3 a[href*='/article/'], h4 a[href*='/article/']"):
@@ -52,7 +51,6 @@ class HkejInstantAdapter:
                     url=urljoin(BASE_URL, href),
                     external_id=detail.group(1) if detail else None,
                     position=len(candidates) + 1,
-                    metrics={"stream_kind": source.stream_kind},
                 )
             )
             if len(candidates) >= max_items:

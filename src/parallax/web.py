@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import urlsplit
@@ -10,7 +11,7 @@ from zoneinfo import ZoneInfo
 
 from flask import Flask, render_template, request, url_for
 
-from parallax.config import SourceConfig
+from parallax.config import Source
 from parallax.domain import BrowseView, is_browse_view
 from parallax.feed import browse_items
 from parallax.storage import Storage
@@ -27,16 +28,45 @@ DAY_WINDOWS: tuple[tuple[int, str], ...] = (
 VALID_DAYS: frozenset[int] = frozenset(days for days, _ in DAY_WINDOWS)
 
 
+@dataclass(frozen=True, slots=True)
+class SourceFilterOption:
+    """One source-filter entry labelled by its provider and channel."""
+
+    id: str
+    provider_name: str
+    channel_label: str
+
+    @property
+    def label(self) -> str:
+        return f"{self.provider_name} — {self.channel_label}"
+
+
+def build_source_filter_options(
+    sources: Sequence[Source],
+) -> tuple[SourceFilterOption, ...]:
+    options = [
+        SourceFilterOption(
+            id=source.id,
+            provider_name=source.provider_name,
+            channel_label=source.channel_label,
+        )
+        for source in sources
+    ]
+    return tuple(
+        sorted(options, key=lambda option: (option.provider_name, option.channel_label))
+    )
+
+
 def create_app(
     storage: Storage,
-    sources: Sequence[SourceConfig],
+    sources: Sequence[Source],
     *,
     now: Callable[[], datetime] | None = None,
 ) -> Flask:
     """Build the read-only Flask application over the stored archive."""
     app = Flask(__name__)
     clock = now or _utc_now
-    source_options = tuple(sorted(sources, key=lambda source: source.name))
+    source_options = build_source_filter_options(sources)
 
     app.jinja_env.filters["relative"] = format_relative
     app.jinja_env.tests["usable_url"] = is_usable_external_url

@@ -8,7 +8,7 @@ import pytest
 from adapter_contract import assert_batch_contract
 from parallax.adapters import AdapterRegistry
 from parallax.adapters.base import ContinueStep, MultiRequestAdapter, SteppedAdapter
-from parallax.config import SourceConfig, load_settings
+from parallax.config import Source, load_catalog
 from parallax.domain import HttpResponse, StreamState
 from parallax.transport import HttpTransport
 from parallax.validation import BatchValidator
@@ -104,11 +104,11 @@ REDIRECT_SOURCE_IDS = (
 @pytest.mark.parametrize("source_id", NATIVE_SOURCE_IDS + REDIRECT_SOURCE_IDS)
 def test_live_native_source_smoke(source_id: str, project_root: Path) -> None:
     """Fetch a configured native source directly from its publisher surface."""
-    settings = load_settings(project_root / "config.toml")
-    source = _configured_source(settings.sources, source_id)
-    adapter = AdapterRegistry().get(source.adapter)
+    config = load_catalog(project_root / "config/config.toml")
+    source = _configured_source(config.sources, source_id)
+    adapter = AdapterRegistry().get(source.endpoint.adapter)
 
-    with HttpTransport(settings.http) as transport:
+    with HttpTransport(config.http) as transport:
         if isinstance(adapter, MultiRequestAdapter):
             responses = tuple(
                 transport.request(spec, source, StreamState(source_id=source.id))
@@ -139,14 +139,16 @@ def test_live_native_source_smoke(source_id: str, project_root: Path) -> None:
             batch = adapter.parse(source, response)
 
     assert_batch_contract(batch)
-    validated = BatchValidator(settings.validation).validate(source.id, batch)
+    validated = BatchValidator(config.validation).validate(
+        source.id, batch, provider_id=source.provider_id
+    )
     assert validated.candidates
 
 
 def _configured_source(
-    sources: Sequence[SourceConfig],
+    sources: Sequence[Source],
     source_id: str,
-) -> SourceConfig:
+) -> Source:
     for source in sources:
         if source.id == source_id:
             return source

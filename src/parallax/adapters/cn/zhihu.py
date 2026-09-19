@@ -3,9 +3,8 @@ from __future__ import annotations
 from typing import Any
 
 from parallax.adapters.common.http import json_request
-from parallax.adapters.common.options import option_int
 from parallax.adapters.common.parsing import decode_json_object, require_list, text
-from parallax.config import SourceConfig
+from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
@@ -22,17 +21,17 @@ class ZhihuHotAdapter:
     (``Q_``), which is stripped so identity matches the question itself.
     """
 
-    def build_request(self, source: SourceConfig) -> RequestSpec:
+    def build_request(self, source: Source) -> RequestSpec:
         return json_request(source)
 
-    def parse(self, source: SourceConfig, response: HttpResponse) -> ParsedBatch:
+    def parse(self, source: Source, response: HttpResponse) -> ParsedBatch:
         payload = decode_json_object(response.content, label="Zhihu")
         entries = require_list(
             payload.get("data"),
             "Zhihu response does not contain a data list",
         )
 
-        max_items = option_int(source, "max_items", 20)
+        max_items = source.max_items
         candidates: list[HeadlineCandidate] = []
         for position, entry in enumerate(entries[:max_items], start=1):
             if not isinstance(entry, dict):
@@ -40,7 +39,7 @@ class ZhihuHotAdapter:
             target = entry.get("target")
             if not isinstance(target, dict):
                 continue
-            metrics: dict[str, Any] = {"stream_kind": source.stream_kind}
+            metrics: dict[str, Any] = {}
             heat = _area_text(target, "metrics_area", "text")
             if heat:
                 metrics["heat"] = heat

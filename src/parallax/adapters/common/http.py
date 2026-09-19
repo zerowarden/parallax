@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 
-from parallax.config import SourceConfig
+from parallax.config import Source
 from parallax.domain import RequestSpec
 
 JSON_ACCEPT = "application/json, text/plain;q=0.9, */*;q=0.1"
@@ -16,7 +16,7 @@ def cookie_header(cookies: Mapping[str, str]) -> str:
 
 
 def json_request(
-    source: SourceConfig,
+    source: Source,
     *,
     headers: Mapping[str, str] | None = None,
     params: Mapping[str, str] | None = None,
@@ -26,7 +26,7 @@ def json_request(
 
 
 def json_post(
-    source: SourceConfig,
+    source: Source,
     body: Mapping[str, object],
     *,
     headers: Mapping[str, str] | None = None,
@@ -34,7 +34,7 @@ def json_post(
     """Build a POST request carrying a JSON body for the configured endpoint."""
     return RequestSpec(
         method="POST",
-        url=source.url,
+        url=source.endpoint.url,
         headers={
             "Accept": JSON_ACCEPT,
             "Content-Type": "application/json",
@@ -45,7 +45,7 @@ def json_post(
 
 
 def html_request(
-    source: SourceConfig,
+    source: Source,
     *,
     headers: Mapping[str, str] | None = None,
     params: Mapping[str, str] | None = None,
@@ -55,14 +55,14 @@ def html_request(
 
 
 def _request(
-    source: SourceConfig,
+    source: Source,
     accept: str,
     headers: Mapping[str, str] | None,
     params: Mapping[str, str] | None,
 ) -> RequestSpec:
     return RequestSpec(
         method="GET",
-        url=source.url,
+        url=source.endpoint.url,
         headers={"Accept": accept, **(headers or {})},
         params=dict(params or {}),
     )

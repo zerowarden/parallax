@@ -4,14 +4,13 @@ from typing import Any
 from urllib.parse import quote
 
 from parallax.adapters.common.http import json_request
-from parallax.adapters.common.options import option_int
 from parallax.adapters.common.parsing import (
     decode_json_object,
     require_list,
     require_mapping,
     text,
 )
-from parallax.config import SourceConfig
+from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
@@ -37,10 +36,10 @@ class WeiboHotAdapter:
     published, so the search word is the identity (as in the reference).
     """
 
-    def build_request(self, source: SourceConfig) -> RequestSpec:
+    def build_request(self, source: Source) -> RequestSpec:
         return json_request(source, headers={"Referer": REFERER})
 
-    def parse(self, source: SourceConfig, response: HttpResponse) -> ParsedBatch:
+    def parse(self, source: Source, response: HttpResponse) -> ParsedBatch:
         payload = decode_json_object(response.content, label="Weibo")
         if payload.get("ok") != 1:
             raise ValueError(
@@ -55,7 +54,7 @@ class WeiboHotAdapter:
             "Weibo response does not contain a realtime list",
         )
 
-        max_items = option_int(source, "max_items", 50)
+        max_items = source.max_items
         candidates: list[HeadlineCandidate] = []
         for entry in entries:
             if not isinstance(entry, dict):
@@ -66,7 +65,7 @@ class WeiboHotAdapter:
             title = text(entry.get("word"))
             if not title:
                 continue
-            metrics: dict[str, Any] = {"stream_kind": source.stream_kind}
+            metrics: dict[str, Any] = {}
             heat = entry.get("num")
             if isinstance(heat, int):
                 metrics["heat"] = heat

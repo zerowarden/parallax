@@ -27,7 +27,7 @@
     <select name="source" aria-label="Source">
       <option value="">All sources</option>
       {% for option in sources %}
-      <option value="{{ option.id }}" {{ 'selected' if option.id == source_id else '' }}>{{ option.name }}</option>
+      <option value="{{ option.id }}" {{ 'selected' if option.id == source_id else '' }}>{{ option.label }}</option>
       {% endfor %}
     </select>
     <button type="submit">Filter</button>

@@ -15,11 +15,7 @@ from parallax.adapters.base import (
 )
 from parallax.adapters.common.http import cookie_header
 from parallax.adapters.execution import MAX_ADAPTER_STEPS
-from parallax.config import (
-    IngestionConfig,
-    SourceConfig,
-    ValidationConfig,
-)
+from parallax.config import IngestionConfig, Source, ValidationConfig
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
@@ -31,6 +27,7 @@ from parallax.domain import (
 from parallax.ingest import IngestionService
 from parallax.storage import Storage
 from parallax.validation import BatchValidator
+from source_factory import make_source
 
 OBSERVED_AT = datetime(2026, 9, 18, 12, 0, tzinfo=UTC)
 
@@ -42,7 +39,7 @@ class FakeTransport:
     def request(
         self,
         spec: RequestSpec,
-        source: SourceConfig,
+        source: Source,
         state: StreamState,
     ) -> HttpResponse:
         return HttpResponse(
@@ -69,13 +66,8 @@ def test_end_to_end_fetch_parse_validate_store(
     fixtures_dir: Path,
     tmp_path: Path,
 ):
-    source = SourceConfig(
-        id="fixture-rss",
-        name="Fixture RSS",
-        region="US",
-        language="en-US",
-        adapter="rss",
-        url="https://example.com/rss.xml",
+    source = make_source(
+        id="fixture-rss", adapter="rss", url="https://example.com/rss.xml"
     )
     storage = Storage(tmp_path / "parallax.db")
     storage.initialize()
@@ -109,7 +101,7 @@ class MappingTransport:
     def request(
         self,
         spec: RequestSpec,
-        source: SourceConfig,
+        source: Source,
         state: StreamState,
     ) -> HttpResponse:
         self.requested.append(spec.url)
@@ -126,13 +118,8 @@ def test_multi_request_fetch_combines_responses_without_network(
     fixtures_dir: Path,
     tmp_path: Path,
 ):
-    source = SourceConfig(
-        id="v2ex-share",
-        name="V2EX",
-        region="GLOBAL",
-        language="en-US",
-        adapter="v2ex_share",
-        url="https://www.v2ex.com",
+    source = make_source(
+        id="v2ex-share", adapter="v2ex_share", url="https://www.v2ex.com"
     )
     routes = ("create", "ideas", "programmer", "share")
     payloads = {
@@ -175,12 +162,12 @@ class FixedAdapterLookup:
 
 
 class BatchAdapter:
-    def build_request(self, source: SourceConfig) -> RequestSpec:
-        return RequestSpec(method="GET", url=source.url)
+    def build_request(self, source: Source) -> RequestSpec:
+        return RequestSpec(method="GET", url=source.endpoint.url)
 
-    def parse(self, source: SourceConfig, response: HttpResponse) -> ParsedBatch:
+    def parse(self, source: Source, response: HttpResponse) -> ParsedBatch:
         return ParsedBatch(
-            (HeadlineCandidate(f"title-{source.id}", source.url, source.id),)
+            (HeadlineCandidate(f"title-{source.id}", source.endpoint.url, source.id),)
         )
 
 
@@ -193,7 +180,7 @@ class BatchTransport:
         self._barrier = threading.Barrier(2)
 
     def request(
-        self, spec: RequestSpec, source: SourceConfig, state: StreamState
+        self, spec: RequestSpec, source: Source, state: StreamState
     ) -> HttpResponse:
         if source.id == self.fail_source_id:
             raise RuntimeError("fixture failure")
@@ -209,22 +196,17 @@ class BatchTransport:
                 self.active -= 1
 
 
-def _batch_sources() -> list[SourceConfig]:
+def _batch_sources() -> list[Source]:
     return [
-        SourceConfig(
-            id=source_id,
-            name=source_id,
-            region="US",
-            language="en-US",
-            adapter="batch",
-            url=f"https://example.test/{source_id}",
+        make_source(
+            id=source_id, adapter="batch", url=f"https://example.test/{source_id}"
         )
         for source_id in ("batch-one", "batch-two", "batch-three")
     ]
 
 
 def _batch_service(
-    tmp_path: Path, sources: list[SourceConfig], transport: BatchTransport
+    tmp_path: Path, sources: list[Source], transport: BatchTransport
 ) -> tuple[IngestionService, Storage]:
     storage = Storage(tmp_path / "batch.db")
     storage.initialize()
@@ -251,7 +233,7 @@ def test_batch_fetches_concurrently_and_commits_on_caller_thread(
     original_commit = storage.record_success
 
     def record_success(
-        source: SourceConfig,
+        source: Source,
         fetch_run_id: int,
         http_status: int | None,
         batch: ValidatedBatch,
@@ -323,7 +305,7 @@ class NotModifiedTransport:
     def request(
         self,
         spec: RequestSpec,
-        source: SourceConfig,
+        source: Source,
         state: StreamState,
     ) -> HttpResponse:
         return HttpResponse(
@@ -338,13 +320,8 @@ class NotModifiedTransport:
 def test_not_modified_records_no_new_snapshot(
     fixtures_dir: Path, tmp_path: Path
 ) -> None:
-    source = SourceConfig(
-        id="fixture-rss",
-        name="Fixture RSS",
-        region="US",
-        language="en-US",
-        adapter="rss",
-        url="https://example.com/rss.xml",
+    source = make_source(
+        id="fixture-rss", adapter="rss", url="https://example.com/rss.xml"
     )
     storage = Storage(tmp_path / "parallax.db")
     storage.initialize()
@@ -379,28 +356,23 @@ def test_not_modified_records_no_new_snapshot(
 
 
 class FailingAdapter:
-    def build_request(self, source: SourceConfig) -> RequestSpec:
-        return RequestSpec(method="GET", url=source.url)
+    def build_request(self, source: Source) -> RequestSpec:
+        return RequestSpec(method="GET", url=source.endpoint.url)
 
-    def parse(self, source: SourceConfig, response: HttpResponse) -> ParsedBatch:
+    def parse(self, source: Source, response: HttpResponse) -> ParsedBatch:
         raise ValueError("upstream schema drift")
 
 
 def test_parse_failure_creates_no_snapshot_or_success(tmp_path: Path) -> None:
-    source = SourceConfig(
-        id="failing-fixture",
-        name="Failing",
-        region="US",
-        language="en-US",
-        adapter="failing",
-        url="https://example.com/failing",
+    source = make_source(
+        id="failing-fixture", adapter="failing", url="https://example.com/failing"
     )
     storage = Storage(tmp_path / "parallax.db")
     storage.initialize()
     storage.sync_sources([source])
     service = IngestionService(
         storage=storage,
-        transport=MappingTransport({source.url: b"{}"}),
+        transport=MappingTransport({source.endpoint.url: b"{}"}),
         adapters=FixedAdapterLookup({"failing": FailingAdapter()}),
         validator=BatchValidator(ValidationConfig()),
         ingestion_config=IngestionConfig(),
@@ -423,14 +395,14 @@ def test_parse_failure_creates_no_snapshot_or_success(tmp_path: Path) -> None:
 
 
 class SteppedFixtureAdapter:
-    def first_step(self, source: SourceConfig) -> ContinueStep:
+    def first_step(self, source: Source) -> ContinueStep:
         return ContinueStep(
             request=RequestSpec(method="GET", url="https://example.com/step-1")
         )
 
     def next_step(
         self,
-        source: SourceConfig,
+        source: Source,
         response: HttpResponse,
         context: Mapping[str, object],
     ) -> ContinueStep | CompleteStep:
@@ -458,14 +430,14 @@ class SteppedFixtureAdapter:
 
 
 class UnboundedSteppedAdapter:
-    def first_step(self, source: SourceConfig) -> ContinueStep:
+    def first_step(self, source: Source) -> ContinueStep:
         return ContinueStep(
             request=RequestSpec(method="GET", url="https://example.com/loop")
         )
 
     def next_step(
         self,
-        source: SourceConfig,
+        source: Source,
         response: HttpResponse,
         context: Mapping[str, object],
     ) -> ContinueStep:
@@ -482,7 +454,7 @@ class QueuedTransport:
     def request(
         self,
         spec: RequestSpec,
-        source: SourceConfig,
+        source: Source,
         state: StreamState,
     ) -> HttpResponse:
         self.requests.append(spec)
@@ -491,7 +463,7 @@ class QueuedTransport:
 
 def _stepped_service(
     tmp_path: Path,
-    source: SourceConfig,
+    source: Source,
     transport: QueuedTransport,
     adapter: Adapter,
 ) -> tuple[IngestionService, Storage]:
@@ -501,7 +473,7 @@ def _stepped_service(
     service = IngestionService(
         storage=storage,
         transport=transport,
-        adapters=FixedAdapterLookup({source.adapter: adapter}),
+        adapters=FixedAdapterLookup({source.endpoint.adapter: adapter}),
         validator=BatchValidator(ValidationConfig()),
         ingestion_config=IngestionConfig(),
     )
@@ -509,13 +481,8 @@ def _stepped_service(
 
 
 def test_stepped_fetch_drives_sequence_offline(tmp_path: Path):
-    source = SourceConfig(
-        id="stepped-fixture",
-        name="Stepped",
-        region="US",
-        language="en-US",
-        adapter="stepped",
-        url="https://example.com/step-1",
+    source = make_source(
+        id="stepped-fixture", adapter="stepped", url="https://example.com/step-1"
     )
     transport = QueuedTransport(
         [
@@ -559,13 +526,8 @@ def test_stepped_fetch_drives_sequence_offline(tmp_path: Path):
 
 
 def test_stepped_fetch_rejects_unbounded_sequence(tmp_path: Path):
-    source = SourceConfig(
-        id="loop-fixture",
-        name="Loop",
-        region="US",
-        language="en-US",
-        adapter="unbounded",
-        url="https://example.com/loop",
+    source = make_source(
+        id="loop-fixture", adapter="unbounded", url="https://example.com/loop"
     )
     transport = QueuedTransport(
         [
@@ -594,10 +556,10 @@ def test_stepped_fetch_rejects_unbounded_sequence(tmp_path: Path):
 
 
 class HistoryFixtureAdapter:
-    def build_request(self, source: SourceConfig) -> RequestSpec:
+    def build_request(self, source: Source) -> RequestSpec:
         return RequestSpec(method="GET", url="https://example.com/current")
 
-    def parse(self, source: SourceConfig, response: HttpResponse) -> ParsedBatch:
+    def parse(self, source: Source, response: HttpResponse) -> ParsedBatch:
         return ParsedBatch(
             candidates=(
                 HeadlineCandidate(
@@ -610,14 +572,14 @@ class HistoryFixtureAdapter:
 
     def build_history_requests(
         self,
-        source: SourceConfig,
+        source: Source,
         since: datetime,
     ) -> tuple[RequestSpec, ...]:
         return (RequestSpec(method="GET", url="https://example.com/history"),)
 
     def parse_history_responses(
         self,
-        source: SourceConfig,
+        source: Source,
         responses: tuple[HttpResponse, ...],
         since: datetime,
     ) -> ParsedBatch:
@@ -634,13 +596,8 @@ class HistoryFixtureAdapter:
 
 
 def test_history_fetch_records_without_snapshot(tmp_path: Path):
-    source = SourceConfig(
-        id="history-fixture",
-        name="History",
-        region="US",
-        language="en-US",
-        adapter="history",
-        url="https://example.com/current",
+    source = make_source(
+        id="history-fixture", adapter="history", url="https://example.com/current"
     )
     transport = MappingTransport(
         {
@@ -654,7 +611,7 @@ def test_history_fetch_records_without_snapshot(tmp_path: Path):
     service = IngestionService(
         storage=storage,
         transport=transport,
-        adapters=FixedAdapterLookup({source.adapter: HistoryFixtureAdapter()}),
+        adapters=FixedAdapterLookup({source.endpoint.adapter: HistoryFixtureAdapter()}),
         validator=BatchValidator(ValidationConfig()),
         ingestion_config=IngestionConfig(),
     )
@@ -680,13 +637,8 @@ def test_history_fetch_falls_back_when_unsupported(
     fixtures_dir: Path,
     tmp_path: Path,
 ):
-    source = SourceConfig(
-        id="fixture-rss",
-        name="Fixture RSS",
-        region="US",
-        language="en-US",
-        adapter="rss",
-        url="https://example.com/rss.xml",
+    source = make_source(
+        id="fixture-rss", adapter="rss", url="https://example.com/rss.xml"
     )
     transport = MappingTransport(
         {

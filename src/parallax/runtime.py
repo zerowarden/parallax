@@ -5,7 +5,7 @@ from pathlib import Path
 from types import TracebackType
 
 from parallax.adapters import AdapterRegistry
-from parallax.config import Settings, load_settings
+from parallax.config import ResolvedConfig, load_catalog
 from parallax.diagnostics import DiagnosticService
 from parallax.ingest import IngestionService
 from parallax.logging_setup import configure_logging
@@ -18,7 +18,7 @@ from parallax.validation import BatchValidator
 
 @dataclass(slots=True)
 class Runtime:
-    settings: Settings
+    config: ResolvedConfig
     registry: SourceRegistry
     storage: Storage
     transport: HttpTransport
@@ -28,29 +28,29 @@ class Runtime:
 
     @classmethod
     def build(cls, config_path: Path) -> Runtime:
-        settings = load_settings(config_path)
+        config = load_catalog(config_path)
         adapters = AdapterRegistry()
-        for source in settings.sources:
+        for source in config.sources:
             adapters.validate_source(source)
-        configure_logging(settings.app.log_level, settings.app.log_path)
-        registry = SourceRegistry.from_sources(settings.sources)
-        storage = Storage(settings.app.database_path)
+        configure_logging(config.app.log_level, config.app.log_path)
+        registry = SourceRegistry.from_sources(config.sources)
+        storage = Storage(config.app.database_path)
         storage.initialize()
-        storage.sync_sources(settings.sources)
-        transport = HttpTransport(settings.http)
-        validator = BatchValidator(settings.validation)
+        storage.sync_sources(config.sources)
+        transport = HttpTransport(config.http)
+        validator = BatchValidator(config.validation)
         ingestion = IngestionService(
             storage=storage,
             transport=transport,
             adapters=adapters,
             validator=validator,
-            ingestion_config=settings.ingestion,
+            ingestion_config=config.ingestion,
         )
         scheduler = Scheduler(
             registry=registry,
             storage=storage,
             ingestion=ingestion,
-            config=settings.scheduler,
+            config=config.scheduler,
         )
         diagnostics = DiagnosticService(
             storage=storage,
@@ -59,7 +59,7 @@ class Runtime:
             validator=validator,
         )
         return cls(
-            settings=settings,
+            config=config,
             registry=registry,
             storage=storage,
             transport=transport,

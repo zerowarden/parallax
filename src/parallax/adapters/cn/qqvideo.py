@@ -3,14 +3,13 @@ from __future__ import annotations
 from typing import Any
 
 from parallax.adapters.common.http import json_post
-from parallax.adapters.common.options import option_int
 from parallax.adapters.common.parsing import (
     decode_json_object,
     require_list,
     require_mapping,
     text,
 )
-from parallax.config import SourceConfig
+from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
@@ -86,10 +85,10 @@ class QqvideoHotSearchAdapter:
     date. The cover id is the stable identity and defines the canonical URL.
     """
 
-    def build_request(self, source: SourceConfig) -> RequestSpec:
+    def build_request(self, source: Source) -> RequestSpec:
         return json_post(source, PAGE_BODY, headers={"Referer": REFERER})
 
-    def parse(self, source: SourceConfig, response: HttpResponse) -> ParsedBatch:
+    def parse(self, source: Source, response: HttpResponse) -> ParsedBatch:
         payload = decode_json_object(response.content, label="Tencent Video")
         ret = payload.get("ret")
         if ret != 0:
@@ -115,7 +114,7 @@ class QqvideoHotSearchAdapter:
             "Tencent Video response does not contain any cards",
         )
 
-        max_items = option_int(source, "max_items", 30)
+        max_items = source.max_items
         candidates: list[HeadlineCandidate] = []
         for item in cards:
             if not isinstance(item, dict):
@@ -127,7 +126,7 @@ class QqvideoHotSearchAdapter:
             title = text(params.get("title"))
             if not title:
                 continue
-            metrics: dict[str, Any] = {"stream_kind": source.stream_kind}
+            metrics: dict[str, Any] = {}
             subtitle = text(params.get("sub_title"))
             if subtitle:
                 metrics["subtitle"] = subtitle

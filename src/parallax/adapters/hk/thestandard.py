@@ -7,9 +7,8 @@ from urllib.parse import urljoin
 from selectolax.parser import HTMLParser
 
 from parallax.adapters.common.http import html_request
-from parallax.adapters.common.options import option_int
 from parallax.adapters.common.parsing import decode_html, text
-from parallax.config import SourceConfig
+from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
@@ -30,13 +29,13 @@ class TheStandardNewsAdapter:
     offers no absolute clock.
     """
 
-    def build_request(self, source: SourceConfig) -> RequestSpec:
+    def build_request(self, source: Source) -> RequestSpec:
         return html_request(source)
 
-    def parse(self, source: SourceConfig, response: HttpResponse) -> ParsedBatch:
+    def parse(self, source: Source, response: HttpResponse) -> ParsedBatch:
         tree = HTMLParser(decode_html(response.content, label="The Standard"))
 
-        max_items = option_int(source, "max_items", 50)
+        max_items = source.max_items
         candidates: list[HeadlineCandidate] = []
         seen: set[str] = set()
         for card in tree.css("div.list-item__container"):
@@ -54,7 +53,7 @@ class TheStandardNewsAdapter:
                 continue
             seen.add(href)
 
-            metrics: dict[str, Any] = {"stream_kind": source.stream_kind}
+            metrics: dict[str, Any] = {}
             age_node = card.css_first(".list-item__date-time")
             age = age_node.text(strip=True) if age_node is not None else ""
             if age:

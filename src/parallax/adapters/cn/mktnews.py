@@ -4,13 +4,12 @@ import re
 from typing import Any
 
 from parallax.adapters.common.http import json_request
-from parallax.adapters.common.options import option_int
 from parallax.adapters.common.parsing import (
     decode_json_object,
     require_list,
     text,
 )
-from parallax.config import SourceConfig
+from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
@@ -32,7 +31,7 @@ class MktNewsFlashAdapter:
     are rejected rather than rewritten.
     """
 
-    def build_request(self, source: SourceConfig) -> RequestSpec:
+    def build_request(self, source: Source) -> RequestSpec:
         return json_request(
             source,
             headers={
@@ -41,7 +40,7 @@ class MktNewsFlashAdapter:
             },
         )
 
-    def parse(self, source: SourceConfig, response: HttpResponse) -> ParsedBatch:
+    def parse(self, source: Source, response: HttpResponse) -> ParsedBatch:
         payload = decode_json_object(response.content, label="MKTNews")
         status = payload.get("status")
         if status != 200:
@@ -51,7 +50,7 @@ class MktNewsFlashAdapter:
             "MKTNews response does not contain a data list",
         )
 
-        max_items = option_int(source, "max_items", 30)
+        max_items = source.max_items
         candidates: list[HeadlineCandidate] = []
         for position, entry in enumerate(entries[:max_items], start=1):
             if not isinstance(entry, dict):
@@ -61,7 +60,7 @@ class MktNewsFlashAdapter:
                 continue
             flash_id = text(entry.get("id"))
             raw_published = text(entry.get("time"))
-            metrics: dict[str, Any] = {"stream_kind": source.stream_kind}
+            metrics: dict[str, Any] = {}
             if entry.get("important") == 1:
                 metrics["important"] = True
             candidates.append(

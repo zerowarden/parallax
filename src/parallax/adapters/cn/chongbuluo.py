@@ -6,9 +6,8 @@ from urllib.parse import urljoin, urlsplit
 from selectolax.parser import HTMLParser
 
 from parallax.adapters.common.http import html_request
-from parallax.adapters.common.options import option_int
 from parallax.adapters.common.parsing import decode_html
-from parallax.config import SourceConfig
+from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
@@ -27,13 +26,13 @@ class ChongbuluoHotAdapter:
     used as the stable identity.
     """
 
-    def build_request(self, source: SourceConfig) -> RequestSpec:
+    def build_request(self, source: Source) -> RequestSpec:
         return html_request(source)
 
-    def parse(self, source: SourceConfig, response: HttpResponse) -> ParsedBatch:
+    def parse(self, source: Source, response: HttpResponse) -> ParsedBatch:
         tree = HTMLParser(decode_html(response.content, label="Chongbuluo"))
 
-        max_items = option_int(source, "max_items", 30)
+        max_items = source.max_items
         candidates: list[HeadlineCandidate] = []
         for row in tree.css(".bmw table tr"):
             link = row.css_first(".common a")
@@ -52,7 +51,6 @@ class ChongbuluoHotAdapter:
                     url=url,
                     external_id=thread_match.group(1) if thread_match else None,
                     position=len(candidates) + 1,
-                    metrics={"stream_kind": source.stream_kind},
                 )
             )
             if len(candidates) >= max_items:

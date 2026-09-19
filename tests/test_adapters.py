@@ -77,24 +77,19 @@ from parallax.adapters.hk.oncc import OnccNewsAdapter
 from parallax.adapters.hk.thestandard import TheStandardNewsAdapter
 from parallax.adapters.hk.tkww import TkwwNewsAdapter
 from parallax.adapters.hk.wenweipo import WenweipoNewsAdapter
-from parallax.config import SourceConfig, ValidationConfig
+from parallax.config import Source, ValidationConfig
 from parallax.validation import BatchValidator
+from source_factory import make_source
 
 
 def _source(
     adapter: str,
     url: str,
     **options: object,
-) -> SourceConfig:
-    return SourceConfig(
-        id="fixture",
-        name="Fixture",
-        region="CN",
-        language="zh-CN",
-        adapter=adapter,
-        url=url,
-        options=options,
-    )
+) -> Source:
+    raw_max_items = options.pop("max_items", 30)
+    max_items = raw_max_items if isinstance(raw_max_items, int) else 30
+    return make_source(adapter=adapter, url=url, max_items=max_items, options=options)
 
 
 def test_rss_adapter_builds_request():
@@ -164,7 +159,7 @@ def test_thepaper_adapter_builds_request():
     request = ThePaperHotAdapter().build_request(source)
 
     assert request.method == "GET"
-    assert request.url == source.url
+    assert request.url == source.endpoint.url
     assert request.headers["Accept"].startswith("application/json")
 
 
@@ -246,7 +241,7 @@ def test_tencent_adapter_builds_request():
     request = TencentHotAdapter().build_request(source)
 
     assert request.method == "GET"
-    assert request.url == source.url
+    assert request.url == source.endpoint.url
     assert request.params == {}
     assert request.headers["Referer"] == "https://news.qq.com/"
     assert request.headers["Accept"].startswith("application/json")
@@ -370,7 +365,7 @@ def test_zhihu_adapter_builds_request():
     request = ZhihuHotAdapter().build_request(source)
 
     assert request.method == "GET"
-    assert request.url == source.url
+    assert request.url == source.endpoint.url
     assert request.params == {}
 
 
@@ -438,7 +433,7 @@ def test_toutiao_adapter_builds_request():
     request = ToutiaoHotAdapter().build_request(source)
 
     assert request.method == "GET"
-    assert request.url == source.url
+    assert request.url == source.endpoint.url
     assert request.params == {}
 
 
@@ -483,7 +478,7 @@ def test_bilibili_adapter_builds_request():
     request = BilibiliHotSearchAdapter().build_request(source)
 
     assert request.method == "GET"
-    assert request.url == source.url
+    assert request.url == source.endpoint.url
     assert request.params == {}
 
 
@@ -546,7 +541,9 @@ def test_adapter_invalid_items_are_left_for_validation():
     ).encode()
 
     batch = ToutiaoHotAdapter().parse(source, response_for(source, payload))
-    validated = BatchValidator(ValidationConfig()).validate(source.id, batch)
+    validated = BatchValidator(ValidationConfig()).validate(
+        source.id, batch, provider_id=source.provider_id
+    )
 
     assert len(validated.candidates) == 1
     assert validated.rejected_count == 1
@@ -763,7 +760,7 @@ def test_juejin_adapter_builds_request():
     request = JuejinHotAdapter().build_request(source)
 
     assert request.method == "GET"
-    assert request.url == source.url
+    assert request.url == source.endpoint.url
     assert request.params == {}
 
 
@@ -811,7 +808,7 @@ def test_dongqiudi_adapter_builds_request():
     request = DongqiudiNewsAdapter().build_request(source)
 
     assert request.method == "GET"
-    assert request.url == source.url
+    assert request.url == source.endpoint.url
     assert request.params == {}
 
 
@@ -875,7 +872,7 @@ def test_mktnews_adapter_builds_request():
     request = MktNewsFlashAdapter().build_request(source)
 
     assert request.method == "GET"
-    assert request.url == source.url
+    assert request.url == source.endpoint.url
     assert request.params == {}
     assert request.headers["Origin"] == "https://mktnews.net"
     assert request.headers["Referer"] == "https://mktnews.net/"
@@ -956,7 +953,7 @@ def test_douban_adapter_builds_request():
     request = DoubanHotMoviesAdapter().build_request(source)
 
     assert request.method == "GET"
-    assert request.url == source.url
+    assert request.url == source.endpoint.url
     assert request.params == {}
     assert request.headers["Referer"] == "https://movie.douban.com/"
 
@@ -995,7 +992,7 @@ def test_ithome_adapter_builds_request():
     request = IthomeNewsAdapter().build_request(source)
 
     assert request.method == "GET"
-    assert request.url == source.url
+    assert request.url == source.endpoint.url
     assert request.params == {}
 
 
@@ -1047,7 +1044,7 @@ def test_jin10_adapter_builds_request():
     request = Jin10FlashAdapter().build_request(source)
 
     assert request.method == "GET"
-    assert request.url == source.url
+    assert request.url == source.endpoint.url
     assert request.params == {}
 
 
@@ -1107,7 +1104,7 @@ def test_nowcoder_adapter_builds_request():
     request = NowcoderHotAdapter().build_request(source)
 
     assert request.method == "GET"
-    assert request.url == source.url
+    assert request.url == source.endpoint.url
     assert request.params == {"size": "30"}
 
 
@@ -1153,7 +1150,7 @@ def test_iqiyi_adapter_builds_request():
     request = IqiyiHotRanklistAdapter().build_request(source)
 
     assert request.method == "GET"
-    assert request.url == source.url
+    assert request.url == source.endpoint.url
     assert request.headers["Referer"] == "https://www.iqiyi.com"
     assert request.params["block_id"] == "hot_ranklist"
     assert request.params["count"] == "30"
@@ -1205,7 +1202,7 @@ def test_baidu_adapter_builds_request():
     request = BaiduHotSearchAdapter().build_request(source)
 
     assert request.method == "GET"
-    assert request.url == source.url
+    assert request.url == source.endpoint.url
     assert request.headers["Accept"].startswith("text/html")
 
 
@@ -1256,7 +1253,7 @@ def test_ifeng_adapter_builds_request():
     request = IfengHotAdapter().build_request(source)
 
     assert request.method == "GET"
-    assert request.url == source.url
+    assert request.url == source.endpoint.url
     assert request.headers["Accept"].startswith("text/html")
 
 
@@ -1362,7 +1359,7 @@ def test_chongbuluo_hot_adapter_builds_request():
     request = ChongbuluoHotAdapter().build_request(source)
 
     assert request.method == "GET"
-    assert request.url == source.url
+    assert request.url == source.endpoint.url
     assert request.headers["Accept"].startswith("text/html")
 
 
@@ -1398,7 +1395,7 @@ def test_hupu_adapter_builds_request():
     request = HupuHotAdapter().build_request(source)
 
     assert request.method == "GET"
-    assert request.url == source.url
+    assert request.url == source.endpoint.url
     assert request.headers["Accept"].startswith("text/html")
 
 
@@ -1434,7 +1431,7 @@ def test_sputnik_news_adapter_builds_request():
     request = SputnikNewsAdapter().build_request(source)
 
     assert request.method == "GET"
-    assert request.url == source.url
+    assert request.url == source.endpoint.url
     assert request.headers["Accept"].startswith("text/html")
 
 
@@ -1474,7 +1471,7 @@ def test_fastbull_express_adapter_builds_request():
     request = FastbullExpressAdapter().build_request(source)
 
     assert request.method == "GET"
-    assert request.url == source.url
+    assert request.url == source.endpoint.url
     assert request.headers["Accept"].startswith("text/html")
 
 
@@ -1511,7 +1508,7 @@ def test_fastbull_news_adapter_builds_request():
     request = FastbullNewsAdapter().build_request(source)
 
     assert request.method == "GET"
-    assert request.url == source.url
+    assert request.url == source.endpoint.url
     assert request.headers["Accept"].startswith("text/html")
 
 
@@ -1558,7 +1555,7 @@ def test_zaobao_adapter_builds_request():
     request = ZaobaoRealtimeAdapter().build_request(source)
 
     assert request.method == "GET"
-    assert request.url == source.url
+    assert request.url == source.endpoint.url
     assert request.headers["Accept"].startswith("text/html")
 
 
@@ -1595,7 +1592,7 @@ def test_gelonghui_adapter_builds_request():
     request = GelonghuiNewsAdapter().build_request(source)
 
     assert request.method == "GET"
-    assert request.url == source.url
+    assert request.url == source.endpoint.url
     assert request.headers["Accept"].startswith("text/html")
 
 
@@ -1636,7 +1633,7 @@ def test_kr36_adapter_builds_request():
     request = Kr36QuickAdapter().build_request(source)
 
     assert request.method == "GET"
-    assert request.url == source.url
+    assert request.url == source.endpoint.url
     assert request.headers["Accept"].startswith("text/html")
 
 
@@ -1679,7 +1676,7 @@ def test_github_trending_adapter_builds_request():
     request = GithubTrendingAdapter().build_request(source)
 
     assert request.method == "GET"
-    assert request.url == source.url
+    assert request.url == source.endpoint.url
     assert request.headers["Accept"].startswith("text/html")
 
 
@@ -1717,7 +1714,7 @@ def test_steam_adapter_builds_request():
     request = SteamPlayersAdapter().build_request(source)
 
     assert request.method == "GET"
-    assert request.url == source.url
+    assert request.url == source.endpoint.url
     assert request.headers["Accept"].startswith("text/html")
 
 
@@ -1755,7 +1752,7 @@ def test_kuaishou_adapter_builds_request():
     request = KuaishouHotAdapter().build_request(source)
 
     assert request.method == "GET"
-    assert request.url == source.url
+    assert request.url == source.endpoint.url
     assert request.headers["User-Agent"].startswith("Mozilla/5.0")
     assert request.headers["Accept"].startswith("text/html")
 
@@ -1809,7 +1806,7 @@ def test_cls_telegraph_adapter_builds_signed_request():
     request = ClsTelegraphAdapter().build_request(source)
 
     assert request.method == "GET"
-    assert request.url == source.url
+    assert request.url == source.endpoint.url
     assert request.headers["Referer"] == "https://www.cls.cn/telegraph"
     assert request.params["refresh_type"] == "1"
     assert request.params["rn"] == "30"
@@ -1929,7 +1926,7 @@ def test_coolapk_adapter_builds_signed_request():
     request = CoolapkHotAdapter().build_request(source)
 
     assert request.method == "GET"
-    assert request.url == source.url
+    assert request.url == source.endpoint.url
     assert request.headers["X-App-Id"] == "com.coolapk.market"
     assert request.headers["X-App-Version"] == "11.0"
     assert request.headers["User-Agent"].startswith("Dalvik/")
@@ -2097,7 +2094,7 @@ def test_wallstreetcn_quick_adapter_builds_request():
     request = WallstreetcnQuickAdapter().build_request(source)
 
     assert request.method == "GET"
-    assert request.url == source.url
+    assert request.url == source.endpoint.url
     assert request.params == {"channel": "global-channel", "limit": "30"}
     assert request.headers["Accept"].startswith("application/json")
 
@@ -2183,7 +2180,7 @@ def test_wallstreetcn_news_adapter_builds_request():
     request = WallstreetcnNewsAdapter().build_request(source)
 
     assert request.method == "GET"
-    assert request.url == source.url
+    assert request.url == source.endpoint.url
     assert request.params == {
         "channel": "global-channel",
         "accept": "article",
@@ -2278,7 +2275,7 @@ def test_wallstreetcn_hot_adapter_builds_request():
     request = WallstreetcnHotAdapter().build_request(source)
 
     assert request.method == "GET"
-    assert request.url == source.url
+    assert request.url == source.endpoint.url
     assert request.params == {"period": "all"}
 
 
@@ -2436,7 +2433,7 @@ def test_tieba_adapter_builds_request():
     request = TiebaHotAdapter().build_request(source)
 
     assert request.method == "GET"
-    assert request.url == source.url
+    assert request.url == source.endpoint.url
     assert request.headers["Accept"].startswith("application/json")
 
 
@@ -2490,7 +2487,7 @@ def test_weibo_adapter_builds_request():
     request = WeiboHotAdapter().build_request(source)
 
     assert request.method == "GET"
-    assert request.url == source.url
+    assert request.url == source.endpoint.url
     assert request.headers["Referer"] == "https://weibo.com/"
     assert request.headers["Accept"].startswith("application/json")
 
@@ -2585,7 +2582,7 @@ def test_sspai_adapter_builds_request():
     request = SspaiHotAdapter().build_request(source)
 
     assert request.method == "GET"
-    assert request.url == source.url
+    assert request.url == source.endpoint.url
     assert request.params == {
         "limit": "30",
         "offset": "0",
@@ -2653,7 +2650,7 @@ def test_hackernews_adapter_builds_request():
     request = HackerNewsHotAdapter().build_request(source)
 
     assert request.method == "GET"
-    assert request.url == source.url
+    assert request.url == source.endpoint.url
     assert request.headers["Accept"].startswith("text/html")
 
 
@@ -2713,7 +2710,7 @@ def test_kaopu_adapter_builds_request_with_mac_user_agent():
     request = KaopuNewsAdapter().build_request(source)
 
     assert request.method == "GET"
-    assert request.url == source.url
+    assert request.url == source.endpoint.url
     assert request.headers["Accept"].startswith("text/html")
     assert request.headers["User-Agent"].startswith(
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"
@@ -2774,7 +2771,7 @@ def test_json_post_builds_json_body_request():
     request = json_post(source, {"page_params": {"tab_name": "热搜榜"}})
 
     assert request.method == "POST"
-    assert request.url == source.url
+    assert request.url == source.endpoint.url
     assert request.headers["Content-Type"] == "application/json"
     assert request.headers["Accept"].startswith("application/json")
     assert json.loads(request.content or b"{}") == {
@@ -2792,7 +2789,7 @@ def test_qqvideo_adapter_builds_post_request():
     request = QqvideoHotSearchAdapter().build_request(source)
 
     assert request.method == "POST"
-    assert request.url == source.url
+    assert request.url == source.endpoint.url
     assert request.headers["Referer"] == "https://v.qq.com/"
     assert request.headers["Content-Type"] == "application/json"
     body = json.loads(request.content or b"{}")
@@ -2864,7 +2861,7 @@ def test_bilibili_hot_video_adapter_builds_request():
     request = BilibiliHotVideoAdapter().build_request(source)
 
     assert request.method == "GET"
-    assert request.url == source.url
+    assert request.url == source.endpoint.url
     assert request.params == {"ps": "30", "pn": "1"}
     assert request.headers["Referer"] == "https://www.bilibili.com/"
 
@@ -2928,7 +2925,7 @@ def test_bilibili_ranking_adapter_builds_request():
     request = BilibiliRankingAdapter().build_request(source)
 
     assert request.method == "GET"
-    assert request.url == source.url
+    assert request.url == source.endpoint.url
     assert request.params == {"rid": "0", "type": "all"}
     assert request.headers["Referer"] == "https://www.bilibili.com/"
 
@@ -3020,7 +3017,7 @@ def test_mingpao_rss_adapter_builds_request():
     request = MingpaoRssAdapter().build_request(source)
 
     assert request.method == "GET"
-    assert request.url == source.url
+    assert request.url == source.endpoint.url
     assert "rss+xml" in request.headers["Accept"]
 
 
@@ -3076,7 +3073,7 @@ def test_now_news_adapter_builds_request():
     request = NowNewsAdapter().build_request(source)
 
     assert request.method == "GET"
-    assert request.url == source.url
+    assert request.url == source.endpoint.url
     assert request.params == {"pageSize": "30", "pageNo": "1"}
 
 
@@ -3143,7 +3140,7 @@ def test_hkej_adapter_builds_request():
     request = HkejInstantAdapter().build_request(source)
 
     assert request.method == "GET"
-    assert request.url == source.url
+    assert request.url == source.endpoint.url
     assert request.headers["Accept"].startswith("text/html")
 
 

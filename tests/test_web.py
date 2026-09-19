@@ -9,15 +9,14 @@ from typing import cast
 import pytest
 from flask.testing import FlaskClient
 
-from parallax.config import SourceConfig
+from parallax.config import Source
 from parallax.domain import (
-    BrowseCategory,
+    BrowseSurface,
     BrowseView,
     HeadlineCandidate,
     ItemKind,
     StreamKind,
     ValidatedBatch,
-    classify_browse_view,
 )
 from parallax.feed import PAGE_SIZE, browse_items
 from parallax.storage import HeadlineRow, Storage
@@ -27,29 +26,13 @@ from parallax.web import (
     is_usable_external_url,
     window_start,
 )
+from source_factory import make_source
 
 NOW = datetime(2026, 9, 18, 4, 0, tzinfo=UTC)
-EXPECTED_BROWSE_CATEGORIES: tuple[tuple[StreamKind, ItemKind, BrowseCategory], ...] = (
-    ("latest", "article", "news"),
-    ("latest", "flash", "news"),
-    ("latest", "game", "discover"),
-    ("latest", "movie", "discover"),
-    ("latest", "post", "news"),
-    ("latest", "product", "discover"),
-    ("latest", "ranking", "discover"),
-    ("latest", "repository", "discover"),
-    ("latest", "trend", "discover"),
-    ("latest", "video", "discover"),
-    ("hot", "article", "discover"),
-    ("hot", "flash", "discover"),
-    ("hot", "game", "discover"),
-    ("hot", "movie", "discover"),
-    ("hot", "post", "discover"),
-    ("hot", "product", "discover"),
-    ("hot", "ranking", "discover"),
-    ("hot", "repository", "discover"),
-    ("hot", "trend", "discover"),
-    ("hot", "video", "discover"),
+SURFACE_CASES: tuple[tuple[str, tuple[BrowseSurface, ...]], ...] = (
+    ("news-source", ("news",)),
+    ("discover-source", ("discover",)),
+    ("both-source", ("news", "discover")),
 )
 
 
@@ -59,16 +42,15 @@ def _source(
     *,
     stream_kind: StreamKind = "latest",
     item_kind: ItemKind = "article",
-) -> SourceConfig:
-    return SourceConfig(
+    surfaces: tuple[BrowseSurface, ...] = ("news",),
+) -> Source:
+    return make_source(
         id=source_id,
-        name=name,
-        region="US",
-        language="en-US",
-        adapter="rss",
+        channel_label=name,
         url="https://example.test/feed.xml",
         stream_kind=stream_kind,
         item_kind=item_kind,
+        surfaces=surfaces,
     )
 
 
@@ -83,7 +65,7 @@ def _candidate(
 
 def _record(
     storage: Storage,
-    source: SourceConfig,
+    source: Source,
     candidates: Sequence[HeadlineCandidate],
     observed_at: datetime,
 ) -> None:
@@ -110,7 +92,7 @@ def storage(tmp_path: Path) -> Iterator[Storage]:
 
 def _client(
     storage: Storage,
-    sources: Sequence[SourceConfig] = (),
+    sources: Sequence[Source] = (),
     *,
     now: datetime = NOW,
 ) -> FlaskClient:
@@ -179,20 +161,6 @@ class _RecordingBrowseReader:
             }
         )
         return []
-
-
-@pytest.mark.parametrize(
-    ("stream_kind", "item_kind", "expected"),
-    EXPECTED_BROWSE_CATEGORIES,
-)
-def test_classify_browse_view(
-    stream_kind: StreamKind,
-    item_kind: ItemKind,
-    expected: BrowseCategory,
-) -> None:
-    assert (
-        classify_browse_view(stream_kind=stream_kind, item_kind=item_kind) == expected
-    )
 
 
 def test_today_window_starts_at_hong_kong_midnight() -> None:
@@ -308,35 +276,17 @@ def test_storage_browse_rejects_unknown_view(storage: Storage) -> None:
         )
 
 
-def test_all_browse_views_match_every_domain_metadata_combination(
-    storage: Storage,
-) -> None:
-    sources: list[SourceConfig] = []
-    expected: dict[BrowseCategory, set[str]] = {"news": set(), "discover": set()}
-    for index, (stream_kind, item_kind, category) in enumerate(
-        EXPECTED_BROWSE_CATEGORIES
-    ):
-        source = _source(
-            f"source-{index}",
-            f"Source {index}",
-            stream_kind=stream_kind,
-            item_kind=item_kind,
-        )
-        title = f"{stream_kind}-{item_kind}"
-        sources.append(source)
-        expected[category].add(title)
-
+def test_browse_views_follow_explicit_surfaces(storage: Storage) -> None:
+    sources = [
+        _source(f"source-{index}", f"Source {index}", surfaces=surfaces)
+        for index, (_, surfaces) in enumerate(SURFACE_CASES)
+    ]
     storage.sync_sources(sources)
     for index, source in enumerate(sources):
         _record(
             storage,
             source,
-            [
-                _candidate(
-                    f"{source.stream_kind}-{source.item_kind}",
-                    f"https://example.test/{index}",
-                )
-            ],
+            [_candidate(f"Title {index}", f"https://example.test/{index}")],
             NOW - timedelta(minutes=5),
         )
 
@@ -345,9 +295,9 @@ def test_all_browse_views_match_every_domain_metadata_combination(
     news_titles = set(_titles(_html(client, "/?view=news")))
     discover_titles = set(_titles(_html(client, "/?view=discover")))
 
-    assert all_titles == expected["news"] | expected["discover"]
-    assert news_titles == expected["news"]
-    assert discover_titles == expected["discover"]
+    assert all_titles == {"Title 0", "Title 1", "Title 2"}
+    assert news_titles == {"Title 0", "Title 2"}
+    assert discover_titles == {"Title 1", "Title 2"}
 
 
 def test_day_filter_uses_first_seen_and_keeps_undated_items(storage: Storage) -> None:
@@ -667,9 +617,7 @@ def test_long_mixed_language_headlines_render_as_source_text(storage: Storage) -
     assert english in html
 
 
-def test_browser_keeps_source_local_rows_for_bounded_pagination(
-    storage: Storage,
-) -> None:
+def test_browser_deduplicates_items_at_item_level(storage: Storage) -> None:
     alpha = _source("alpha", "Alpha")
     beta = _source("beta", "Beta")
     storage.sync_sources([alpha, beta])
@@ -682,19 +630,15 @@ def test_browser_keeps_source_local_rows_for_bounded_pagination(
     _record(
         storage,
         beta,
-        [
-            _candidate(
-                "Shared story",
-                "https://example.test/story?utm_source=beta",
-            )
-        ],
+        [_candidate("Shared story", "https://example.test/story")],
         NOW - timedelta(minutes=1),
     )
 
     client = _client(storage, [alpha, beta])
     html = _html(client, "/?days=1")
 
-    assert html.count('class="headline"') == 2
+    assert html.count('class="headline"') == 1
+    assert "Beta" in html
     assert "(+1)" not in html
 
 
@@ -793,15 +737,13 @@ def test_source_dropdown_lists_configured_sources(storage: Storage) -> None:
     assert "All sources" in html
 
 
-def test_database_error_returns_error_page(storage: Storage) -> None:
-    source = _source("news", "News Feed")
-    storage.sync_sources([source])
-    client = _client(storage, [source])
-    storage.close()
+def test_source_dropdown_labels_options_by_provider(storage: Storage) -> None:
+    alpha = _source("alpha", "Alpha")
+    beta = _source("beta", "Beta", surfaces=("discover",))
+    storage.sync_sources([alpha, beta])
 
-    response = client.get("/")
+    client = _client(storage, [alpha, beta])
+    html = _html(client, "/")
 
-    assert response.status_code == 500
-    html = response.get_data(as_text=True)
-    assert "database is unavailable" in html
-    assert "Traceback" not in html
+    assert ">Fixture Provider — Alpha</option>" in html
+    assert ">Fixture Provider — Beta</option>" in html

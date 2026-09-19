@@ -5,14 +5,13 @@ from dataclasses import dataclass
 from typing import Any
 
 from parallax.adapters.common.http import json_request
-from parallax.adapters.common.options import option_int
 from parallax.adapters.common.parsing import (
     decode_json_object,
     require_list,
     require_mapping,
     text,
 )
-from parallax.config import SourceConfig
+from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
@@ -34,7 +33,7 @@ class _Fields:
     metrics: Mapping[str, Any]
 
 
-_Extractor = Callable[[dict[str, Any], SourceConfig], _Fields | None]
+_Extractor = Callable[[dict[str, Any], Source], _Fields | None]
 
 
 class WallstreetcnQuickAdapter:
@@ -45,14 +44,14 @@ class WallstreetcnQuickAdapter:
     ``published_at``, preserving the raw value separately.
     """
 
-    def build_request(self, source: SourceConfig) -> RequestSpec:
-        limit = option_int(source, "max_items", 30)
+    def build_request(self, source: Source) -> RequestSpec:
+        limit = source.max_items
         return json_request(
             source,
             params={"channel": LIVE_CHANNEL, "limit": str(limit)},
         )
 
-    def parse(self, source: SourceConfig, response: HttpResponse) -> ParsedBatch:
+    def parse(self, source: Source, response: HttpResponse) -> ParsedBatch:
         entries = _entries(payload=response.content, key="items", label="live")
         return _batch(entries, source, _live_fields)
 
@@ -65,8 +64,8 @@ class WallstreetcnNewsAdapter:
     ``content_short``; entries without a resource URL are skipped.
     """
 
-    def build_request(self, source: SourceConfig) -> RequestSpec:
-        limit = option_int(source, "max_items", 30)
+    def build_request(self, source: Source) -> RequestSpec:
+        limit = source.max_items
         return json_request(
             source,
             params={
@@ -76,7 +75,7 @@ class WallstreetcnNewsAdapter:
             },
         )
 
-    def parse(self, source: SourceConfig, response: HttpResponse) -> ParsedBatch:
+    def parse(self, source: Source, response: HttpResponse) -> ParsedBatch:
         entries = _entries(payload=response.content, key="items", label="news")
         return _batch(entries, source, _news_fields)
 
@@ -89,10 +88,10 @@ class WallstreetcnHotAdapter:
     metrics.
     """
 
-    def build_request(self, source: SourceConfig) -> RequestSpec:
+    def build_request(self, source: Source) -> RequestSpec:
         return json_request(source, params={"period": "all"})
 
-    def parse(self, source: SourceConfig, response: HttpResponse) -> ParsedBatch:
+    def parse(self, source: Source, response: HttpResponse) -> ParsedBatch:
         entries = _entries(payload=response.content, key="day_items", label="hot")
         return _batch(entries, source, _hot_fields)
 
@@ -111,10 +110,10 @@ def _entries(*, payload: bytes, key: str, label: str) -> list[Any]:
 
 def _batch(
     entries: list[Any],
-    source: SourceConfig,
+    source: Source,
     extract: _Extractor,
 ) -> ParsedBatch:
-    max_items = option_int(source, "max_items", 30)
+    max_items = source.max_items
     candidates: list[HeadlineCandidate] = []
     for entry in entries:
         if not isinstance(entry, dict):
@@ -138,17 +137,17 @@ def _batch(
     return ParsedBatch(candidates=tuple(candidates))
 
 
-def _live_fields(entry: dict[str, Any], source: SourceConfig) -> _Fields:
+def _live_fields(entry: dict[str, Any], source: Source) -> _Fields:
     return _Fields(
         title=text(entry.get("title")) or text(entry.get("content_text")),
         url=text(entry.get("uri")),
         external_id=text(entry.get("id")) or None,
         raw_published_at=text(entry.get("display_time")),
-        metrics={"stream_kind": source.stream_kind},
+        metrics={},
     )
 
 
-def _news_fields(entry: dict[str, Any], source: SourceConfig) -> _Fields | None:
+def _news_fields(entry: dict[str, Any], source: Source) -> _Fields | None:
     if text(entry.get("resource_type")) in NEWS_EXCLUDED_RESOURCE_TYPES:
         return None
     resource = entry.get("resource")
@@ -161,12 +160,12 @@ def _news_fields(entry: dict[str, Any], source: SourceConfig) -> _Fields | None:
         url=text(resource.get("uri")),
         external_id=text(resource.get("id")) or None,
         raw_published_at=text(resource.get("display_time")),
-        metrics={"stream_kind": source.stream_kind},
+        metrics={},
     )
 
 
-def _hot_fields(entry: dict[str, Any], source: SourceConfig) -> _Fields | None:
-    metrics: dict[str, Any] = {"stream_kind": source.stream_kind}
+def _hot_fields(entry: dict[str, Any], source: Source) -> _Fields | None:
+    metrics: dict[str, Any] = {}
     pageviews = entry.get("pageviews")
     if isinstance(pageviews, int):
         metrics["pageviews"] = pageviews

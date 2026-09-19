@@ -5,9 +5,8 @@ from typing import Any
 
 from parallax.adapters.base import AdapterStep, CompleteStep, ContinueStep
 from parallax.adapters.common.http import cookie_header
-from parallax.adapters.common.options import option_int
 from parallax.adapters.common.parsing import decode_json_object, require_list, text
-from parallax.config import SourceConfig
+from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
@@ -36,7 +35,7 @@ class DouyinHotAdapter:
     bounded metric and ``published_at`` stays ``None``.
     """
 
-    def first_step(self, source: SourceConfig) -> AdapterStep:
+    def first_step(self, source: Source) -> AdapterStep:
         return ContinueStep(
             request=RequestSpec(
                 method="GET",
@@ -47,7 +46,7 @@ class DouyinHotAdapter:
 
     def next_step(
         self,
-        source: SourceConfig,
+        source: Source,
         response: HttpResponse,
         context: Mapping[str, object],
     ) -> AdapterStep:
@@ -66,7 +65,7 @@ class DouyinHotAdapter:
         return CompleteStep(batch=_parse_hot(source, response))
 
 
-def _parse_hot(source: SourceConfig, response: HttpResponse) -> ParsedBatch:
+def _parse_hot(source: Source, response: HttpResponse) -> ParsedBatch:
     payload = decode_json_object(response.content, label="Douyin")
     data = payload.get("data")
     if not isinstance(data, dict):
@@ -76,7 +75,7 @@ def _parse_hot(source: SourceConfig, response: HttpResponse) -> ParsedBatch:
         "Douyin response does not contain a word_list",
     )
 
-    max_items = option_int(source, "max_items", 30)
+    max_items = source.max_items
     candidates: list[HeadlineCandidate] = []
     for entry in entries:
         if not isinstance(entry, dict):
@@ -85,7 +84,7 @@ def _parse_hot(source: SourceConfig, response: HttpResponse) -> ParsedBatch:
         title = text(entry.get("word"))
         if not sentence_id or not title:
             continue
-        metrics: dict[str, Any] = {"stream_kind": source.stream_kind}
+        metrics: dict[str, Any] = {}
         hot_value = entry.get("hot_value")
         if isinstance(hot_value, (int, float)) and not isinstance(hot_value, bool):
             metrics["hot_value"] = hot_value

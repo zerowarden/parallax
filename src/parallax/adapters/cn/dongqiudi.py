@@ -3,14 +3,13 @@ from __future__ import annotations
 from typing import Any
 
 from parallax.adapters.common.http import json_request
-from parallax.adapters.common.options import option_int
 from parallax.adapters.common.parsing import (
     decode_json_object,
     parse_china_timestamp,
     require_list,
     text,
 )
-from parallax.config import SourceConfig
+from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
@@ -28,17 +27,17 @@ class DongqiudiNewsAdapter:
     re-sorted even though ``created_at`` values are not strictly chronological.
     """
 
-    def build_request(self, source: SourceConfig) -> RequestSpec:
+    def build_request(self, source: Source) -> RequestSpec:
         return json_request(source)
 
-    def parse(self, source: SourceConfig, response: HttpResponse) -> ParsedBatch:
+    def parse(self, source: Source, response: HttpResponse) -> ParsedBatch:
         payload = decode_json_object(response.content, label="Dongqiudi")
         articles = require_list(
             payload.get("articles"),
             "Dongqiudi response does not contain an articles list",
         )
 
-        max_items = option_int(source, "max_items", 30)
+        max_items = source.max_items
         candidates: list[HeadlineCandidate] = []
         for position, article in enumerate(articles[:max_items], start=1):
             if not isinstance(article, dict):
@@ -48,7 +47,7 @@ class DongqiudiNewsAdapter:
             if not url and article_id:
                 url = ARTICLE_URL_TEMPLATE.format(article_id=article_id)
             raw_published = text(article.get("created_at"))
-            metrics: dict[str, Any] = {"stream_kind": source.stream_kind}
+            metrics: dict[str, Any] = {}
             category = text(article.get("category"))
             if category:
                 metrics["category"] = category

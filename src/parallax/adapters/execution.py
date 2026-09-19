@@ -13,7 +13,7 @@ from parallax.adapters.base import (
     SourceAdapter,
     SteppedAdapter,
 )
-from parallax.config import SourceConfig
+from parallax.config import Source
 from parallax.domain import HttpResponse, ParsedBatch, StreamState
 from parallax.transport import Transport
 
@@ -38,7 +38,7 @@ class AdapterRefresh:
 
 def run_adapter_refresh(
     adapter: Adapter,
-    source: SourceConfig,
+    source: Source,
     transport: Transport,
     state: StreamState,
 ) -> AdapterRefresh:
@@ -52,7 +52,7 @@ def run_adapter_refresh(
 
 def _run_single_request(
     adapter: SourceAdapter,
-    source: SourceConfig,
+    source: Source,
     transport: Transport,
     state: StreamState,
 ) -> AdapterRefresh:
@@ -68,7 +68,7 @@ def _run_single_request(
 
 def _run_multi_request(
     adapter: MultiRequestAdapter,
-    source: SourceConfig,
+    source: Source,
     transport: Transport,
 ) -> AdapterRefresh:
     requests = adapter.build_requests(source)
@@ -89,7 +89,7 @@ def _run_multi_request(
 
 def _run_stepped(
     adapter: SteppedAdapter,
-    source: SourceConfig,
+    source: Source,
     transport: Transport,
 ) -> AdapterRefresh:
     state = StreamState(source_id=source.id)

@@ -6,14 +6,13 @@ from datetime import UTC, datetime
 from selectolax.parser import HTMLParser, Node
 
 from parallax.adapters.common.http import JSON_ACCEPT, html_request
-from parallax.adapters.common.options import option_int
 from parallax.adapters.common.parsing import (
     decode_html,
     decode_json_object,
     require_list,
     text,
 )
-from parallax.config import SourceConfig
+from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
@@ -42,15 +41,15 @@ class HackerNewsHotAdapter:
     the window is therefore exact rather than paginated.
     """
 
-    def build_request(self, source: SourceConfig) -> RequestSpec:
+    def build_request(self, source: Source) -> RequestSpec:
         return html_request(source)
 
     def build_history_requests(
         self,
-        source: SourceConfig,
+        source: Source,
         since: datetime,
     ) -> tuple[RequestSpec, ...]:
-        hits = min(option_int(source, "max_items", 30), MAX_SEARCH_HITS)
+        hits = min(source.max_items, MAX_SEARCH_HITS)
         return (
             RequestSpec(
                 method="GET",
@@ -66,7 +65,7 @@ class HackerNewsHotAdapter:
 
     def parse_history_responses(
         self,
-        source: SourceConfig,
+        source: Source,
         responses: tuple[HttpResponse, ...],
         since: datetime,
     ) -> ParsedBatch:
@@ -78,7 +77,7 @@ class HackerNewsHotAdapter:
             payload.get("hits"),
             "Hacker News search response does not contain hits",
         )
-        max_items = option_int(source, "max_items", 30)
+        max_items = source.max_items
         candidates: list[HeadlineCandidate] = []
         for hit in hits:
             if not isinstance(hit, dict):
@@ -87,7 +86,7 @@ class HackerNewsHotAdapter:
             title = text(hit.get("title"))
             if not item_id or not title:
                 continue
-            metrics: dict[str, object] = {"stream_kind": source.stream_kind}
+            metrics: dict[str, object] = {}
             points = hit.get("points")
             if isinstance(points, int):
                 metrics["points"] = points
@@ -109,10 +108,10 @@ class HackerNewsHotAdapter:
                 break
         return ParsedBatch(candidates=tuple(candidates))
 
-    def parse(self, source: SourceConfig, response: HttpResponse) -> ParsedBatch:
+    def parse(self, source: Source, response: HttpResponse) -> ParsedBatch:
         tree = HTMLParser(decode_html(response.content, label="Hacker News"))
 
-        max_items = option_int(source, "max_items", 30)
+        max_items = source.max_items
         candidates: list[HeadlineCandidate] = []
         for row in tree.css("tr.athing"):
             item_id = text(row.attributes.get("id"))
@@ -123,7 +122,7 @@ class HackerNewsHotAdapter:
             if not title:
                 continue
 
-            metrics: dict[str, object] = {"stream_kind": source.stream_kind}
+            metrics: dict[str, object] = {}
             raw_published = ""
             subtext = _subtext_row(row)
             if subtext is not None:

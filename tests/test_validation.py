@@ -32,23 +32,76 @@ def test_validator_rejects_invalid_and_duplicate_items():
         )
     )
 
-    result = validator.validate("fixture", batch)
+    result = validator.validate("fixture", batch, provider_id="fixture")
 
     assert len(result.candidates) == 1
     assert result.rejected_count == 2
+
+
+@pytest.mark.parametrize("external_first", [False, True])
+def test_validator_rejects_url_fallback_and_external_identity_for_same_item(
+    external_first: bool,
+) -> None:
+    validator = BatchValidator(ValidationConfig())
+    external = HeadlineCandidate(
+        title="With ID",
+        url="https://example.com/story",
+        external_id="story-1",
+    )
+    fallback = HeadlineCandidate(
+        title="Without ID",
+        url="https://example.com/story",
+    )
+    candidates = (external, fallback) if external_first else (fallback, external)
+
+    result = validator.validate(
+        "fixture",
+        ParsedBatch(candidates=candidates),
+        provider_id="fixture",
+    )
+
+    assert result.candidates == (candidates[0],)
+    assert result.rejected_count == 1
+
+
+def test_validator_preserves_distinct_external_ids_with_the_same_url() -> None:
+    validator = BatchValidator(ValidationConfig())
+    candidates = (
+        HeadlineCandidate(
+            title="First",
+            url="https://example.com/story",
+            external_id="story-1",
+        ),
+        HeadlineCandidate(
+            title="Second",
+            url="https://example.com/story",
+            external_id="story-2",
+        ),
+    )
+
+    result = validator.validate(
+        "fixture",
+        ParsedBatch(candidates=candidates),
+        provider_id="fixture",
+    )
+
+    assert result.candidates == candidates
+    assert result.rejected_count == 0
 
 
 def test_validator_rejects_empty_batch_by_default():
     validator = BatchValidator(ValidationConfig())
 
     with pytest.raises(BatchValidationError, match="no valid headline items"):
-        validator.validate("fixture", ParsedBatch(candidates=()))
+        validator.validate("fixture", ParsedBatch(candidates=()), provider_id="fixture")
 
 
 def test_validator_allows_configured_empty_batch():
     validator = BatchValidator(ValidationConfig(allow_empty_batches=True))
 
-    result = validator.validate("fixture", ParsedBatch(candidates=()))
+    result = validator.validate(
+        "fixture", ParsedBatch(candidates=()), provider_id="fixture"
+    )
 
     assert result.candidates == ()
     assert result.rejected_count == 0
@@ -77,7 +130,7 @@ def test_validator_rejects_urls_with_illegal_characters(url: str):
         )
     )
 
-    result = validator.validate("fixture", batch)
+    result = validator.validate("fixture", batch, provider_id="fixture")
 
     assert result.candidates == ()
     assert result.rejected_count == 1

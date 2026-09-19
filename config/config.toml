@@ -1,0 +1,33 @@
+schema_version = 0
+
+[app]
+database_path = "../data/parallax.db"
+log_path = "../data/parallax.log"
+log_level = "INFO"
+
+[http]
+user_agent = "parallax/0 (+personal headline archive)"
+connect_timeout_seconds = 5.0
+read_timeout_seconds = 15.0
+write_timeout_seconds = 10.0
+pool_timeout_seconds = 5.0
+max_connections = 10
+max_keepalive_connections = 5
+max_connections_per_host = 2
+max_response_bytes = 2097152
+follow_redirects = true
+max_attempts = 2
+retry_backoff_seconds = 0.5
+
+[ingestion]
+max_concurrent_sources = 8
+retry_base_seconds = 30
+retry_max_seconds = 1800
+
+[scheduler]
+loop_sleep_seconds = 2.0
+
+[validation]
+max_title_length = 1000
+allow_empty_batches = false
+max_future_seconds = 7200

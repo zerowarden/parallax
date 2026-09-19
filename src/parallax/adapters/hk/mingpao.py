@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 from parallax.adapters.common.rss import RssAdapter, parse_feed_batch
-from parallax.config import SourceConfig
+from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
@@ -21,7 +21,7 @@ class MingpaoRssAdapter(RssAdapter):
     candidate that is still not a real HTTP(S) URL.
     """
 
-    def parse(self, source: SourceConfig, response: HttpResponse) -> ParsedBatch:
+    def parse(self, source: Source, response: HttpResponse) -> ParsedBatch:
         return parse_feed_batch(
             response.content,
             source,

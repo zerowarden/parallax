@@ -3,9 +3,8 @@ from __future__ import annotations
 from typing import Any
 
 from parallax.adapters.common.http import json_request
-from parallax.adapters.common.options import option_int
 from parallax.adapters.common.parsing import decode_json_object, text
-from parallax.config import SourceConfig
+from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
@@ -18,17 +17,17 @@ from parallax.parsing import parse_timestamp
 class Hk01LatestAdapter:
     """Metadata-only adapter for HK01's public latest-page JSON response."""
 
-    def build_request(self, source: SourceConfig) -> RequestSpec:
+    def build_request(self, source: Source) -> RequestSpec:
         return json_request(source)
 
-    def parse(self, source: SourceConfig, response: HttpResponse) -> ParsedBatch:
+    def parse(self, source: Source, response: HttpResponse) -> ParsedBatch:
         payload = decode_json_object(response.content, label="HK01")
 
         items = payload.get("items")
         if not isinstance(items, list):
             raise ValueError("HK01 response does not contain an items list")
 
-        max_items = option_int(source, "max_items", 50)
+        max_items = source.max_items
         candidates: list[HeadlineCandidate] = []
         for item in items:
             if not isinstance(item, dict) or item.get("type") == 2:
@@ -41,7 +40,7 @@ class Hk01LatestAdapter:
             raw_published = data.get("publishTime")
             tags = data.get("tags")
             authors = data.get("authors")
-            metrics: dict[str, Any] = {"stream_kind": source.stream_kind}
+            metrics: dict[str, Any] = {}
             if isinstance(tags, list):
                 metrics["tags"] = [
                     tag.get("tagName")

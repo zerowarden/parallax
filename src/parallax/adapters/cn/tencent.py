@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from parallax.adapters.common.http import json_request
-from parallax.adapters.common.options import option_int
 from parallax.adapters.common.parsing import (
     decode_json_object,
     parse_china_timestamp,
@@ -9,7 +8,7 @@ from parallax.adapters.common.parsing import (
     require_mapping,
     text,
 )
-from parallax.config import SourceConfig
+from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
@@ -26,10 +25,10 @@ class TencentHotAdapter:
     The upstream ``publish_time`` value is Beijing wall time without an offset.
     """
 
-    def build_request(self, source: SourceConfig) -> RequestSpec:
+    def build_request(self, source: Source) -> RequestSpec:
         return json_request(source, headers={"Referer": REFERER})
 
-    def parse(self, source: SourceConfig, response: HttpResponse) -> ParsedBatch:
+    def parse(self, source: Source, response: HttpResponse) -> ParsedBatch:
         payload = decode_json_object(response.content, label="Tencent")
         data = require_mapping(
             payload.get("data"),
@@ -47,7 +46,7 @@ class TencentHotAdapter:
             "Tencent response does not contain an articleList",
         )
 
-        max_items = option_int(source, "max_items", 30)
+        max_items = source.max_items
         candidates: list[HeadlineCandidate] = []
         for position, item in enumerate(articles[:max_items], start=1):
             if not isinstance(item, dict):
@@ -63,7 +62,6 @@ class TencentHotAdapter:
                     published_at=parse_china_timestamp(raw_published),
                     raw_published_at=raw_published or None,
                     position=position,
-                    metrics={"stream_kind": source.stream_kind},
                 )
             )
         return ParsedBatch(candidates=tuple(candidates))

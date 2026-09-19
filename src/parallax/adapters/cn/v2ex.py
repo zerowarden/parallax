@@ -4,9 +4,8 @@ from datetime import UTC, datetime
 from typing import Any
 
 from parallax.adapters.common.http import JSON_ACCEPT
-from parallax.adapters.common.options import option_int
 from parallax.adapters.common.parsing import decode_json_object, require_list, text
-from parallax.config import SourceConfig
+from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
@@ -26,7 +25,7 @@ class V2exShareAdapter:
     ordered by modification or publication time, newest first.
     """
 
-    def build_requests(self, source: SourceConfig) -> tuple[RequestSpec, ...]:
+    def build_requests(self, source: Source) -> tuple[RequestSpec, ...]:
         return tuple(
             RequestSpec(
                 method="GET",
@@ -38,7 +37,7 @@ class V2exShareAdapter:
 
     def parse_responses(
         self,
-        source: SourceConfig,
+        source: Source,
         responses: tuple[HttpResponse, ...],
     ) -> ParsedBatch:
         entries: list[dict[str, Any]] = []
@@ -51,7 +50,7 @@ class V2exShareAdapter:
             entries.extend(item for item in items if isinstance(item, dict))
         entries.sort(key=_sort_key, reverse=True)
 
-        max_items = option_int(source, "max_items", 30)
+        max_items = source.max_items
         candidates: list[HeadlineCandidate] = []
         for position, entry in enumerate(entries[:max_items], start=1):
             raw_published = text(entry.get("date_published"))
@@ -63,7 +62,6 @@ class V2exShareAdapter:
                     published_at=parse_timestamp(raw_published),
                     raw_published_at=raw_published or None,
                     position=position,
-                    metrics={"stream_kind": source.stream_kind},
                 )
             )
         return ParsedBatch(candidates=tuple(candidates))

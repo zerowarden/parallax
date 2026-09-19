@@ -8,14 +8,13 @@ from typing import Any
 from urllib.parse import urlencode
 
 from parallax.adapters.common.http import json_request
-from parallax.adapters.common.options import option_int
 from parallax.adapters.common.parsing import (
     decode_json_object,
     require_list,
     require_mapping,
     text,
 )
-from parallax.config import SourceConfig
+from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
@@ -57,8 +56,8 @@ class ClsTelegraphAdapter:
     plain configured URL. Ad-only entries are skipped.
     """
 
-    def build_request(self, source: SourceConfig) -> RequestSpec:
-        rn = option_int(source, "max_items", 30)
+    def build_request(self, source: Source) -> RequestSpec:
+        rn = source.max_items
         return json_request(
             source,
             headers={"Referer": TELEGRAPH_REFERER},
@@ -68,7 +67,7 @@ class ClsTelegraphAdapter:
             ),
         )
 
-    def parse(self, source: SourceConfig, response: HttpResponse) -> ParsedBatch:
+    def parse(self, source: Source, response: HttpResponse) -> ParsedBatch:
         payload = decode_json_object(response.content, label="CLS")
         data = require_mapping(
             payload.get("data"),
@@ -87,10 +86,10 @@ class ClsTelegraphAdapter:
 class ClsDepthAdapter:
     """Native adapter for the CLS depth article list."""
 
-    def build_request(self, source: SourceConfig) -> RequestSpec:
+    def build_request(self, source: Source) -> RequestSpec:
         return json_request(source, params=signed_params())
 
-    def parse(self, source: SourceConfig, response: HttpResponse) -> ParsedBatch:
+    def parse(self, source: Source, response: HttpResponse) -> ParsedBatch:
         payload = decode_json_object(response.content, label="CLS")
         data = require_mapping(
             payload.get("data"),
@@ -109,10 +108,10 @@ class ClsDepthAdapter:
 class ClsHotAdapter:
     """Native adapter for the CLS hot article list."""
 
-    def build_request(self, source: SourceConfig) -> RequestSpec:
+    def build_request(self, source: Source) -> RequestSpec:
         return json_request(source, params=signed_params())
 
-    def parse(self, source: SourceConfig, response: HttpResponse) -> ParsedBatch:
+    def parse(self, source: Source, response: HttpResponse) -> ParsedBatch:
         payload = decode_json_object(response.content, label="CLS")
         entries = require_list(
             payload.get("data"),
@@ -126,11 +125,11 @@ class ClsHotAdapter:
 
 def _candidates(
     entries: list[Any],
-    source: SourceConfig,
+    source: Source,
     *,
     skip_ads: bool = False,
 ) -> list[HeadlineCandidate]:
-    max_items = option_int(source, "max_items", 30)
+    max_items = source.max_items
     candidates: list[HeadlineCandidate] = []
     for entry in entries:
         if not isinstance(entry, dict):
@@ -150,7 +149,6 @@ def _candidates(
                 published_at=_published_at(entry.get("ctime")),
                 raw_published_at=raw_published or None,
                 position=len(candidates) + 1,
-                metrics={"stream_kind": source.stream_kind},
             )
         )
         if len(candidates) >= max_items:

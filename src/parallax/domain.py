@@ -5,28 +5,43 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Literal, TypeGuard, get_args
 
-StreamKind = Literal["latest", "hot"]
 ItemKind = Literal[
     "article",
-    "flash",
+    "post",
+    "video",
+    "entity",
+]
+EntityKind = Literal[
     "game",
     "movie",
-    "post",
     "product",
-    "ranking",
     "repository",
-    "trend",
-    "video",
+    "topic",
+    "security",
 ]
+ItemVariant = Literal["flash"]
+StreamKind = Literal[
+    "latest",
+    "hot",
+    "ranking",
+    "curated",
+]
+BrowseSurface = Literal["news", "discover"]
 BrowseView = Literal["all", "news", "discover"]
-BrowseCategory = Literal["news", "discover"]
-STREAM_KINDS: frozenset[str] = frozenset(get_args(StreamKind))
+ProviderKind = Literal[
+    "publisher",
+    "platform",
+    "community",
+    "government",
+    "aggregator",
+]
+ChannelRole = Literal["aggregate", "section", "view"]
+
 ITEM_KINDS: frozenset[str] = frozenset(get_args(ItemKind))
+ENTITY_KINDS: frozenset[str] = frozenset(get_args(EntityKind))
+ITEM_VARIANTS: frozenset[str] = frozenset(get_args(ItemVariant))
+STREAM_KINDS: frozenset[str] = frozenset(get_args(StreamKind))
 BROWSE_VIEWS: frozenset[str] = frozenset(get_args(BrowseView))
-DISCOVER_STREAM_KINDS: frozenset[str] = frozenset({"hot"})
-DISCOVER_ITEM_KINDS: frozenset[str] = frozenset(
-    {"game", "movie", "product", "ranking", "repository", "trend", "video"}
-)
 
 
 def is_stream_kind(value: str) -> TypeGuard[StreamKind]:
@@ -37,21 +52,40 @@ def is_item_kind(value: str) -> TypeGuard[ItemKind]:
     return value in ITEM_KINDS
 
 
+def is_entity_kind(value: str) -> TypeGuard[EntityKind]:
+    return value in ENTITY_KINDS
+
+
+def is_item_variant(value: str) -> TypeGuard[ItemVariant]:
+    return value in ITEM_VARIANTS
+
+
 def is_browse_view(value: str) -> TypeGuard[BrowseView]:
     return value in BROWSE_VIEWS
 
 
-def classify_browse_view(
-    *, stream_kind: StreamKind, item_kind: ItemKind
-) -> BrowseCategory:
-    """Map stored stream/item metadata to the reader's top-level views.
-
-    Discovery covers ranking/trending/list surfaces and object catalogues;
-    everything else is treated as news/editorial reporting.
-    """
-    if stream_kind in DISCOVER_STREAM_KINDS or item_kind in DISCOVER_ITEM_KINDS:
-        return "discover"
-    return "news"
+def validate_item_classification(
+    *,
+    item_kind: str,
+    entity_kind: str | None,
+    item_variant: str | None,
+) -> None:
+    """Enforce the ontology's conditional rules for one item declaration."""
+    if item_kind == "entity":
+        if entity_kind is None:
+            raise ValueError("entity_kind is required when item_kind is 'entity'")
+        if not is_entity_kind(entity_kind):
+            raise ValueError(f"unknown entity_kind: {entity_kind!r}")
+    elif entity_kind is not None:
+        raise ValueError(
+            f"entity_kind is only valid when item_kind is 'entity', not {item_kind!r}"
+        )
+    if item_variant is None:
+        return
+    if not is_item_variant(item_variant):
+        raise ValueError(f"unknown item_variant: {item_variant!r}")
+    if item_variant == "flash" and item_kind != "article":
+        raise ValueError("item_variant 'flash' requires item_kind 'article'")
 
 
 @dataclass(frozen=True, slots=True)
@@ -164,6 +198,8 @@ class AnalysisItem:
     source_enabled: bool
     stream_kind: StreamKind
     item_kind: ItemKind
+    entity_kind: EntityKind | None
+    item_variant: ItemVariant | None
     original_url: str
     canonical_url: str
     published_at: datetime | None

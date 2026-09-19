@@ -7,13 +7,12 @@ from urllib.parse import urljoin, urlsplit
 from selectolax.parser import HTMLParser
 
 from parallax.adapters.common.http import html_request
-from parallax.adapters.common.options import option_int
 from parallax.adapters.common.parsing import (
     decode_html,
     parse_relative_time,
     text,
 )
-from parallax.config import SourceConfig
+from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
@@ -32,13 +31,13 @@ class GelonghuiNewsAdapter:
     is approximated to a UTC publication time while the raw label is kept.
     """
 
-    def build_request(self, source: SourceConfig) -> RequestSpec:
+    def build_request(self, source: Source) -> RequestSpec:
         return html_request(source)
 
-    def parse(self, source: SourceConfig, response: HttpResponse) -> ParsedBatch:
+    def parse(self, source: Source, response: HttpResponse) -> ParsedBatch:
         tree = HTMLParser(decode_html(response.content, label="Gelonghui"))
 
-        max_items = option_int(source, "max_items", 30)
+        max_items = source.max_items
         candidates: list[HeadlineCandidate] = []
         for row in tree.css(".article-content"):
             link = row.css_first(".detail-right > a")
@@ -52,7 +51,7 @@ class GelonghuiNewsAdapter:
             spans = row.css(".time > span")
             category = spans[0].text(strip=True) if spans else ""
             raw_published = spans[2].text(strip=True) if len(spans) > 2 else ""
-            metrics: dict[str, Any] = {"stream_kind": source.stream_kind}
+            metrics: dict[str, Any] = {}
             if category:
                 metrics["category"] = category
             url = urljoin(BASE_URL, href)

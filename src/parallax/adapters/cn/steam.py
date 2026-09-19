@@ -7,9 +7,8 @@ from urllib.parse import urljoin, urlsplit
 from selectolax.parser import HTMLParser
 
 from parallax.adapters.common.http import html_request
-from parallax.adapters.common.options import option_int
 from parallax.adapters.common.parsing import decode_html, text
-from parallax.config import SourceConfig
+from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
@@ -29,13 +28,13 @@ class SteamPlayersAdapter:
     deliberately does not do. The current player count is kept as a metric.
     """
 
-    def build_request(self, source: SourceConfig) -> RequestSpec:
+    def build_request(self, source: Source) -> RequestSpec:
         return html_request(source)
 
-    def parse(self, source: SourceConfig, response: HttpResponse) -> ParsedBatch:
+    def parse(self, source: Source, response: HttpResponse) -> ParsedBatch:
         tree = HTMLParser(decode_html(response.content, label="Steam"))
 
-        max_items = option_int(source, "max_items", 30)
+        max_items = source.max_items
         candidates: list[HeadlineCandidate] = []
         for row in tree.css("#detailStats tr.player_count_row"):
             link = row.css_first("a.gameLink")
@@ -47,7 +46,7 @@ class SteamPlayersAdapter:
             if not href or not title:
                 continue
             players = text(players_node.text(strip=True)) if players_node else ""
-            metrics: dict[str, Any] = {"stream_kind": source.stream_kind}
+            metrics: dict[str, Any] = {}
             if players:
                 metrics["current_players"] = players
             url = href if href.startswith("http") else urljoin(BASE_URL, href)

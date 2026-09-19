@@ -16,6 +16,8 @@ def test_headline_content_is_rendered_as_literal_text() -> None:
         item_id=1,
         stream_kind="latest",
         item_kind="article",
+        entity_kind=None,
+        item_variant=None,
         position=1,
         title="Malformed [/bold] and [red]literal[/red]",
         url="https://example.test/[story]",

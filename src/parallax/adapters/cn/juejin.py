@@ -3,9 +3,8 @@ from __future__ import annotations
 from typing import Any
 
 from parallax.adapters.common.http import json_request
-from parallax.adapters.common.options import option_int
 from parallax.adapters.common.parsing import decode_json_object, require_list, text
-from parallax.config import SourceConfig
+from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
@@ -19,10 +18,10 @@ POST_URL_TEMPLATE = "https://juejin.cn/post/{content_id}"
 class JuejinHotAdapter:
     """Metadata-only adapter for the Juejin hot article rank."""
 
-    def build_request(self, source: SourceConfig) -> RequestSpec:
+    def build_request(self, source: Source) -> RequestSpec:
         return json_request(source)
 
-    def parse(self, source: SourceConfig, response: HttpResponse) -> ParsedBatch:
+    def parse(self, source: Source, response: HttpResponse) -> ParsedBatch:
         payload = decode_json_object(response.content, label="Juejin")
         err_no = payload.get("err_no")
         if err_no != 0:
@@ -32,7 +31,7 @@ class JuejinHotAdapter:
             "Juejin response does not contain a data list",
         )
 
-        max_items = option_int(source, "max_items", 30)
+        max_items = source.max_items
         candidates: list[HeadlineCandidate] = []
         for position, entry in enumerate(entries[:max_items], start=1):
             if not isinstance(entry, dict):
@@ -41,7 +40,7 @@ class JuejinHotAdapter:
             if not isinstance(content, dict):
                 continue
             content_id = text(content.get("content_id"))
-            metrics: dict[str, Any] = {"stream_kind": source.stream_kind}
+            metrics: dict[str, Any] = {}
             candidates.append(
                 HeadlineCandidate(
                     title=text(content.get("title")),

@@ -10,14 +10,10 @@ from urllib.parse import parse_qs, urlsplit
 import httpx
 import pytest
 
-from parallax.config import (
-    AuthConfig,
-    HttpConfig,
-    RedirectPolicyConfig,
-    SourceConfig,
-)
+from parallax.config import AuthConfig, HttpConfig, RedirectPolicyConfig, Source
 from parallax.domain import RequestSpec, StreamState
 from parallax.transport import HttpTransport, UnsafeRedirectError
+from source_factory import make_source
 
 
 class _RecordingHandler(BaseHTTPRequestHandler):
@@ -66,14 +62,13 @@ def recording_server() -> Iterator[tuple[str, list[str]]]:
         thread.join(timeout=5)
 
 
-def _source(url: str) -> SourceConfig:
-    return SourceConfig(
-        id="fixture",
-        name="Fixture",
-        region="CN",
-        language="zh-CN",
+def _source(url: str, *, headers: dict[str, str] | None = None) -> Source:
+    return make_source(
         adapter="fixture",
         url=url,
+        language="zh-CN",
+        market="CN",
+        headers=headers,
     )
 
 
@@ -85,7 +80,7 @@ def test_transport_preserves_configured_url_query(
 
     with HttpTransport(HttpConfig()) as transport:
         transport.request(
-            RequestSpec(method="GET", url=source.url),
+            RequestSpec(method="GET", url=source.endpoint.url),
             source,
             StreamState(source_id=source.id),
         )
@@ -102,7 +97,7 @@ def test_transport_merges_request_params_into_url_query(
 
     with HttpTransport(HttpConfig()) as transport:
         transport.request(
-            RequestSpec(method="GET", url=source.url, params={"id": "zhihu"}),
+            RequestSpec(method="GET", url=source.endpoint.url, params={"id": "zhihu"}),
             source,
             StreamState(source_id=source.id),
         )
@@ -122,7 +117,7 @@ def test_transport_captures_response_cookies(
 
     with HttpTransport(HttpConfig()) as transport:
         response = transport.request(
-            RequestSpec(method="GET", url=source.url),
+            RequestSpec(method="GET", url=source.endpoint.url),
             source,
             StreamState(source_id=source.id),
         )
@@ -139,7 +134,7 @@ def test_transport_records_aware_utc_observation_time(
 
     with HttpTransport(HttpConfig()) as transport:
         response = transport.request(
-            RequestSpec(method="GET", url=source.url),
+            RequestSpec(method="GET", url=source.endpoint.url),
             source,
             StreamState(source_id=source.id),
         )
@@ -161,7 +156,7 @@ def test_transport_forwards_post_body(
         response = transport.request(
             RequestSpec(
                 method="POST",
-                url=source.url,
+                url=source.endpoint.url,
                 headers={"Content-Type": "application/json"},
                 content=payload,
             ),
@@ -187,11 +182,13 @@ def test_transport_follows_same_authority_redirect_with_headers() -> None:
     transport = HttpTransport(HttpConfig())
     transport._client.close()
     transport._client = httpx.Client(transport=httpx.MockTransport(handler))
-    source = _source("https://example.test/start")
-    source.headers["X-Api-Key"] = "secret"
+    source = _source(
+        "https://example.test/start",
+        headers={"X-Api-Key": "secret"},
+    )
     try:
         response = transport.request(
-            RequestSpec(method="GET", url=source.url),
+            RequestSpec(method="GET", url=source.endpoint.url),
             source,
             StreamState(source_id=source.id),
         )
@@ -220,17 +217,21 @@ def test_transport_rejects_cross_authority_redirect_before_leaking_headers() -> 
     transport._client.close()
     transport._client = httpx.Client(transport=httpx.MockTransport(handler))
     source = _source("https://example.test/start")
-    source.auth = AuthConfig(
-        kind="header",
-        env_var="PARALLAX_TEST_SECRET",
-        name="X-Api-Key",
+    source = source.model_copy(
+        update={
+            "auth": AuthConfig(
+                kind="header",
+                env_var="PARALLAX_TEST_SECRET",
+                name="X-Api-Key",
+            )
+        }
     )
     try:
         with pytest.MonkeyPatch.context() as monkeypatch:
             monkeypatch.setenv("PARALLAX_TEST_SECRET", "secret")
             with pytest.raises(UnsafeRedirectError):
                 transport.request(
-                    RequestSpec(method="GET", url=source.url),
+                    RequestSpec(method="GET", url=source.endpoint.url),
                     source,
                     StreamState(source_id=source.id),
                 )
@@ -266,10 +267,12 @@ def test_transport_follows_allowlisted_cross_authority_redirect() -> None:
 
     transport = _mock_transport(handler)
     source = _source("https://example.test/start")
-    source.redirect = RedirectPolicyConfig(allowed_hosts=("publisher.test",))
+    source = source.model_copy(
+        update={"redirect": RedirectPolicyConfig(allowed_hosts=("publisher.test",))}
+    )
     try:
         response = transport.request(
-            RequestSpec(method="GET", url=source.url),
+            RequestSpec(method="GET", url=source.endpoint.url),
             source,
             StreamState(source_id=source.id),
         )
@@ -300,13 +303,17 @@ def test_transport_follows_allowlisted_downgrade_with_upstream_cookie() -> None:
 
     transport = _mock_transport(handler)
     source = _source("https://example.test/start")
-    source.redirect = RedirectPolicyConfig(
-        allowed_hosts=("publisher.test",),
-        allow_https_downgrade=True,
+    source = source.model_copy(
+        update={
+            "redirect": RedirectPolicyConfig(
+                allowed_hosts=("publisher.test",),
+                allow_https_downgrade=True,
+            )
+        }
     )
     try:
         response = transport.request(
-            RequestSpec(method="GET", url=source.url),
+            RequestSpec(method="GET", url=source.endpoint.url),
             source,
             StreamState(source_id=source.id),
         )
@@ -337,7 +344,7 @@ def test_transport_does_not_reuse_upstream_cookies_across_requests() -> None:
     try:
         for _ in range(2):
             transport.request(
-                RequestSpec(method="GET", url=source.url),
+                RequestSpec(method="GET", url=source.endpoint.url),
                 source,
                 StreamState(source_id=source.id),
             )
@@ -361,7 +368,7 @@ def test_transport_sends_cookie_declared_in_request_spec() -> None:
         transport.request(
             RequestSpec(
                 method="GET",
-                url=source.url,
+                url=source.endpoint.url,
                 headers={"Cookie": "ttwid=abc; sessionid=def"},
             ),
             source,
@@ -388,14 +395,14 @@ def test_transport_declared_cookie_overrides_upstream_jar_cookie() -> None:
     source = _source("https://example.test/feed")
     try:
         transport.request(
-            RequestSpec(method="GET", url=source.url),
+            RequestSpec(method="GET", url=source.endpoint.url),
             source,
             StreamState(source_id=source.id),
         )
         transport.request(
             RequestSpec(
                 method="GET",
-                url=source.url,
+                url=source.endpoint.url,
                 headers={"Cookie": "declared=1"},
             ),
             source,
@@ -428,7 +435,7 @@ def test_transport_reapplies_declared_cookie_across_same_authority_redirect() ->
         transport.request(
             RequestSpec(
                 method="GET",
-                url=source.url,
+                url=source.endpoint.url,
                 headers={"Cookie": "declared=1"},
             ),
             source,
@@ -462,7 +469,7 @@ def test_transport_strips_upstream_cookie_across_same_authority_redirect() -> No
     source = _source("https://example.test/start")
     try:
         transport.request(
-            RequestSpec(method="GET", url=source.url),
+            RequestSpec(method="GET", url=source.endpoint.url),
             source,
             StreamState(source_id=source.id),
         )
@@ -483,7 +490,7 @@ def test_transport_omits_empty_declared_cookie() -> None:
     source = _source("https://example.test/feed")
     try:
         transport.request(
-            RequestSpec(method="GET", url=source.url, headers={"Cookie": ""}),
+            RequestSpec(method="GET", url=source.endpoint.url, headers={"Cookie": ""}),
             source,
             StreamState(source_id=source.id),
         )
@@ -505,12 +512,14 @@ def test_transport_rejects_allowlisted_redirect_with_sensitive_header() -> None:
 
     transport = _mock_transport(handler)
     source = _source("https://example.test/start")
-    source.redirect = RedirectPolicyConfig(allowed_hosts=("publisher.test",))
-    source.headers["Authorization"] = "Bearer secret"
+    source = source.model_copy(
+        update={"redirect": RedirectPolicyConfig(allowed_hosts=("publisher.test",))}
+    )
+    source = source.model_copy(update={"headers": {"Authorization": "Bearer secret"}})
     try:
         with pytest.raises(UnsafeRedirectError):
             transport.request(
-                RequestSpec(method="GET", url=source.url),
+                RequestSpec(method="GET", url=source.endpoint.url),
                 source,
                 StreamState(source_id=source.id),
             )
@@ -534,10 +543,12 @@ def test_transport_allows_explicit_same_host_https_downgrade() -> None:
 
     transport = _mock_transport(handler)
     source = _source("https://example.test/start")
-    source.redirect = RedirectPolicyConfig(allow_https_downgrade=True)
+    source = source.model_copy(
+        update={"redirect": RedirectPolicyConfig(allow_https_downgrade=True)}
+    )
     try:
         response = transport.request(
-            RequestSpec(method="GET", url=source.url),
+            RequestSpec(method="GET", url=source.endpoint.url),
             source,
             StreamState(source_id=source.id),
         )
@@ -566,7 +577,7 @@ def test_transport_rejects_unapproved_https_downgrade() -> None:
     try:
         with pytest.raises(UnsafeRedirectError):
             transport.request(
-                RequestSpec(method="GET", url=source.url),
+                RequestSpec(method="GET", url=source.endpoint.url),
                 source,
                 StreamState(source_id=source.id),
             )
@@ -597,7 +608,7 @@ def test_transport_retries_one_idempotent_connect_failure(
     source = _source("https://example.test/start")
     try:
         response = transport.request(
-            RequestSpec(method="GET", url=source.url),
+            RequestSpec(method="GET", url=source.endpoint.url),
             source,
             StreamState(source_id=source.id),
         )
@@ -639,7 +650,7 @@ def test_transport_retries_one_idempotent_read_timeout(
     source = _source("https://example.test/start")
     try:
         response = transport.request(
-            RequestSpec(method="GET", url=source.url),
+            RequestSpec(method="GET", url=source.endpoint.url),
             source,
             StreamState(source_id=source.id),
         )
@@ -672,7 +683,7 @@ def test_transport_retries_one_idempotent_body_read_timeout(
     source = _source("https://example.test/start")
     try:
         response = transport.request(
-            RequestSpec(method="GET", url=source.url),
+            RequestSpec(method="GET", url=source.endpoint.url),
             source,
             StreamState(source_id=source.id),
         )
@@ -698,7 +709,7 @@ def test_transport_does_not_retry_non_idempotent_read_timeout(method: str) -> No
     try:
         with pytest.raises(httpx.ReadTimeout):
             transport.request(
-                RequestSpec(method=method, url=source.url),
+                RequestSpec(method=method, url=source.endpoint.url),
                 source,
                 StreamState(source_id=source.id),
             )
@@ -722,7 +733,7 @@ def test_transport_does_not_retry_non_idempotent_connect_failure(method: str) ->
     try:
         with pytest.raises(httpx.ConnectError):
             transport.request(
-                RequestSpec(method=method, url=source.url),
+                RequestSpec(method=method, url=source.endpoint.url),
                 source,
                 StreamState(source_id=source.id),
             )
@@ -744,7 +755,7 @@ def test_transport_does_not_retry_http_response() -> None:
     source = _source("https://example.test/start")
     try:
         response = transport.request(
-            RequestSpec(method="GET", url=source.url),
+            RequestSpec(method="GET", url=source.endpoint.url),
             source,
             StreamState(source_id=source.id),
         )
@@ -781,7 +792,7 @@ def test_transport_limits_same_host_requests() -> None:
     def fetch() -> None:
         try:
             transport.request(
-                RequestSpec(method="GET", url=source.url),
+                RequestSpec(method="GET", url=source.endpoint.url),
                 source,
                 StreamState(source_id=source.id),
             )
@@ -824,9 +835,9 @@ def test_transport_allows_different_hosts_to_overlap() -> None:
     first = _source("https://first.test/start")
     second = _source("https://second.test/start")
 
-    def fetch(source: SourceConfig) -> None:
+    def fetch(source: Source) -> None:
         transport.request(
-            RequestSpec(method="GET", url=source.url),
+            RequestSpec(method="GET", url=source.endpoint.url),
             source,
             StreamState(source_id=source.id),
         )

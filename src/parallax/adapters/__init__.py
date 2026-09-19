@@ -62,9 +62,8 @@ from parallax.adapters.hk.oncc import OnccNewsAdapter
 from parallax.adapters.hk.thestandard import TheStandardNewsAdapter
 from parallax.adapters.hk.tkww import TkwwNewsAdapter
 from parallax.adapters.hk.wenweipo import WenweipoNewsAdapter
-from parallax.config import SourceConfig
+from parallax.config import Source
 
-COMMON_OPTIONS = frozenset({"max_items"})
 ADAPTER_OPTIONS = {
     "now_news": frozenset({"history_max_pages"}),
 }
@@ -141,12 +140,12 @@ class AdapterRegistry:
     def names(self) -> tuple[str, ...]:
         return tuple(sorted(self._adapters))
 
-    def validate_source(self, source: SourceConfig) -> None:
-        self.get(source.adapter)
-        allowed = COMMON_OPTIONS | ADAPTER_OPTIONS.get(source.adapter, frozenset())
-        unknown = sorted(set(source.options) - allowed)
+    def validate_source(self, source: Source) -> None:
+        self.get(source.endpoint.adapter)
+        allowed = ADAPTER_OPTIONS.get(source.endpoint.adapter, frozenset())
+        unknown = sorted(set(source.endpoint.options) - allowed)
         if unknown:
             joined = ", ".join(unknown)
             raise ValueError(
-                f"Unknown options for adapter {source.adapter!r}: {joined}"
+                f"Unknown options for adapter {source.endpoint.adapter!r}: {joined}"
             )

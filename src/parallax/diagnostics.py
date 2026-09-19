@@ -10,7 +10,7 @@ import httpx
 
 from parallax.adapters.base import AdapterLookup
 from parallax.adapters.execution import AdapterRefresh, run_adapter_refresh
-from parallax.config import SourceConfig
+from parallax.config import Source
 from parallax.domain import HttpResponse, RequestSpec, StreamState
 from parallax.storage import Storage
 from parallax.transport import ResponseTooLargeError, Transport
@@ -111,11 +111,11 @@ class DiagnosticService:
         self._adapters = adapters
         self._validator = validator
 
-    def diagnose(self, source: SourceConfig) -> SourceDiagnostic:
+    def diagnose(self, source: Source) -> SourceDiagnostic:
         state = self._storage.get_stream_state(source.id)
         last_change = self._storage.last_content_change_at(source.id)
         try:
-            adapter = self._adapters.get(source.adapter)
+            adapter = self._adapters.get(source.endpoint.adapter)
         except KeyError as exc:
             return self._finish(
                 source,
@@ -123,7 +123,7 @@ class DiagnosticService:
                 last_change,
                 classification=CONFIGURATION_BROKEN,
                 detail=str(exc),
-                upstream_host=_host(source.url),
+                upstream_host=_host(source.endpoint.url),
             )
 
         recorder = _RecordingTransport(self._transport)
@@ -174,7 +174,7 @@ class DiagnosticService:
 
     def _completed(
         self,
-        source: SourceConfig,
+        source: Source,
         state: StreamState,
         last_change: datetime | None,
         recorder: _RecordingTransport,
@@ -195,7 +195,9 @@ class DiagnosticService:
         assert refresh.batch is not None
         parsed_count = len(refresh.batch.candidates)
         try:
-            validated = self._validator.validate(source.id, refresh.batch)
+            validated = self._validator.validate(
+                source.id, refresh.batch, provider_id=source.provider_id
+            )
         except BatchValidationError as exc:
             return self._finish(
                 source,
@@ -236,7 +238,7 @@ class DiagnosticService:
 
     def _status_failure(
         self,
-        source: SourceConfig,
+        source: Source,
         state: StreamState,
         last_change: datetime | None,
         recorder: _RecordingTransport,
@@ -257,7 +259,7 @@ class DiagnosticService:
 
     def _exception_result(
         self,
-        source: SourceConfig,
+        source: Source,
         state: StreamState,
         last_change: datetime | None,
         recorder: _RecordingTransport,
@@ -280,7 +282,7 @@ class DiagnosticService:
 
     def _finish(
         self,
-        source: SourceConfig,
+        source: Source,
         state: StreamState,
         last_change: datetime | None,
         *,
@@ -296,8 +298,8 @@ class DiagnosticService:
     ) -> SourceDiagnostic:
         diagnostic = SourceDiagnostic(
             source_id=source.id,
-            name=source.name,
-            adapter=source.adapter,
+            name=source.channel_label,
+            adapter=source.endpoint.adapter,
             upstream_host=upstream_host,
             last_attempt_at=state.last_attempt_at,
             last_success_at=state.last_success_at,
@@ -335,7 +337,7 @@ class _RecordingTransport:
     def request(
         self,
         spec: RequestSpec,
-        source: SourceConfig,
+        source: Source,
         state: StreamState,
     ) -> HttpResponse:
         response = self._transport.request(spec, source, state)
@@ -373,10 +375,10 @@ def _safe_headers(headers: Mapping[str, str]) -> dict[str, str]:
     }
 
 
-def _upstream_host(responses: Sequence[HttpResponse], source: SourceConfig) -> str:
+def _upstream_host(responses: Sequence[HttpResponse], source: Source) -> str:
     urls = [response.url for response in responses if response.url]
     try:
-        return _host(urls[-1] if urls else source.url)
+        return _host(urls[-1] if urls else source.endpoint.url)
     except ValueError:
         return ""
 

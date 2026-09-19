@@ -1,0 +1,426 @@
+[[sources]]
+id = "bloomberg-markets"
+provider_id = "bloomberg"
+channel_id = "markets"
+channel_label = "Markets"
+channel_role = "section"
+stream_kind = "latest"
+item_kind = "article"
+topics = ["business", "markets"]
+surfaces = ["news"]
+language = "en-US"
+market = "US"
+interval_seconds = 900
+max_items = 100
+enabled = true
+provider_name = "Bloomberg"
+provider_kind = "publisher"
+[sources.redirect]
+allowed_hosts = ["www.bloomberg.com"]
+[sources.endpoint]
+adapter = "rss"
+url = "https://feeds.bloomberg.com/markets/news.rss"
+
+[[sources]]
+id = "hackernews"
+provider_id = "hackernews"
+channel_id = "hot"
+channel_label = "Hot"
+channel_role = "view"
+stream_kind = "hot"
+item_kind = "post"
+topics = ["technology"]
+surfaces = ["discover"]
+language = "en"
+market = "GLOBAL"
+interval_seconds = 1800
+max_items = 30
+enabled = true
+provider_name = "Hacker News"
+provider_kind = "community"
+[sources.endpoint]
+adapter = "hackernews_hot"
+url = "https://news.ycombinator.com/"
+
+[[sources]]
+id = "hn-new"
+provider_id = "hackernews"
+channel_id = "newest"
+channel_label = "Newest"
+channel_role = "view"
+stream_kind = "latest"
+item_kind = "post"
+topics = ["technology"]
+surfaces = ["news"]
+language = "en"
+market = "GLOBAL"
+interval_seconds = 1800
+max_items = 30
+enabled = true
+provider_name = "Hacker News"
+provider_kind = "community"
+[sources.endpoint]
+adapter = "hackernews_hot"
+url = "https://news.ycombinator.com/newest"
+
+[[sources]]
+id = "producthunt"
+provider_id = "producthunt"
+channel_id = "products"
+channel_label = "产品"
+channel_role = "view"
+stream_kind = "latest"
+item_kind = "entity"
+entity_kind = "product"
+topics = ["technology", "business"]
+surfaces = ["discover"]
+language = "en"
+market = "GLOBAL"
+interval_seconds = 1800
+max_items = 30
+enabled = true
+provider_name = "Product Hunt"
+provider_kind = "platform"
+[sources.endpoint]
+adapter = "rss"
+url = "https://www.producthunt.com/feed"
+
+[[sources]]
+id = "github-trending-today"
+provider_id = "github"
+channel_id = "trending"
+channel_label = "Trending"
+channel_role = "view"
+stream_kind = "ranking"
+item_kind = "entity"
+entity_kind = "repository"
+topics = ["technology"]
+surfaces = ["discover"]
+language = "en"
+market = "GLOBAL"
+interval_seconds = 1800
+max_items = 30
+enabled = true
+provider_name = "GitHub"
+provider_kind = "platform"
+[sources.endpoint]
+adapter = "github_trending"
+url = "https://github.com/trending?spoken_language_code="
+
+[[sources]]
+id = "steam"
+provider_id = "steam"
+channel_id = "top-players"
+channel_label = "在线人数"
+channel_role = "view"
+stream_kind = "ranking"
+item_kind = "entity"
+entity_kind = "game"
+topics = ["gaming"]
+surfaces = ["discover"]
+language = "en"
+market = "GLOBAL"
+interval_seconds = 1800
+max_items = 30
+enabled = true
+provider_name = "Steam"
+provider_kind = "platform"
+[sources.endpoint]
+adapter = "steam_players"
+url = "https://store.steampowered.com/stats/stats/"
+
+[[sources]]
+id = "cna-sg-latest"
+provider_id = "cna-singapore"
+channel_id = "latest"
+channel_label = "Latest"
+channel_role = "aggregate"
+stream_kind = "latest"
+item_kind = "article"
+topics = ["asia"]
+surfaces = ["news"]
+language = "en-SG"
+market = "SG"
+interval_seconds = 1800
+max_items = 100
+enabled = true
+provider_name = "CNA"
+provider_kind = "publisher"
+[sources.endpoint]
+adapter = "rss"
+url = "https://www.channelnewsasia.com/api/v1/rss-outbound-feed?_format=xml"
+
+[[sources]]
+id = "guardian-world"
+provider_id = "guardian"
+channel_id = "world"
+channel_label = "World"
+channel_role = "section"
+stream_kind = "latest"
+item_kind = "article"
+topics = ["world"]
+surfaces = ["news"]
+language = "en-GB"
+market = "GB"
+interval_seconds = 1800
+max_items = 100
+enabled = true
+provider_name = "The Guardian"
+provider_kind = "publisher"
+[sources.endpoint]
+adapter = "rss"
+url = "https://www.theguardian.com/world/rss"
+
+[[sources]]
+id = "pbs-headlines"
+provider_id = "pbs"
+channel_id = "headlines"
+channel_label = "Headlines"
+channel_role = "aggregate"
+stream_kind = "curated"
+item_kind = "article"
+topics = []
+surfaces = ["news"]
+language = "en-US"
+market = "US"
+interval_seconds = 1800
+max_items = 100
+enabled = true
+provider_name = "PBS NewsHour"
+provider_kind = "publisher"
+[sources.endpoint]
+adapter = "rss"
+url = "https://www.pbs.org/newshour/feeds/rss/headlines"
+
+[[sources]]
+id = "bbc-top"
+provider_id = "bbc"
+channel_id = "top"
+channel_label = "Top"
+channel_role = "aggregate"
+stream_kind = "curated"
+item_kind = "article"
+topics = ["world"]
+surfaces = ["news"]
+language = "en-GB"
+market = "GB"
+interval_seconds = 1800
+max_items = 100
+enabled = true
+provider_name = "BBC News"
+provider_kind = "publisher"
+[sources.endpoint]
+adapter = "rss"
+url = "https://feeds.bbci.co.uk/news/rss.xml"
+
+[[sources]]
+id = "ft-home"
+provider_id = "ft"
+channel_id = "home"
+channel_label = "Home"
+channel_role = "aggregate"
+stream_kind = "curated"
+item_kind = "article"
+topics = []
+surfaces = ["news"]
+language = "en-GB"
+market = "GB"
+interval_seconds = 1800
+max_items = 100
+enabled = true
+provider_name = "Financial Times"
+provider_kind = "publisher"
+[sources.endpoint]
+adapter = "rss"
+url = "https://www.ft.com/rss/home/international"
+
+[[sources]]
+id = "dailymail-news"
+provider_id = "dailymail"
+channel_id = "news"
+channel_label = "News"
+channel_role = "section"
+stream_kind = "latest"
+item_kind = "article"
+topics = []
+surfaces = ["news"]
+language = "en-GB"
+market = "GB"
+interval_seconds = 1800
+max_items = 100
+enabled = true
+provider_name = "Daily Mail"
+provider_kind = "publisher"
+[sources.redirect]
+allowed_hosts = ["www.dailymail.com"]
+[sources.endpoint]
+adapter = "rss"
+url = "https://www.dailymail.co.uk/news/index.rss"
+
+[[sources]]
+id = "nyt-homepage"
+provider_id = "nyt"
+channel_id = "homepage"
+channel_label = "Homepage"
+channel_role = "aggregate"
+stream_kind = "curated"
+item_kind = "article"
+topics = []
+surfaces = ["news"]
+language = "en-US"
+market = "US"
+interval_seconds = 1800
+max_items = 100
+enabled = true
+provider_name = "The New York Times"
+provider_kind = "publisher"
+[sources.endpoint]
+adapter = "rss"
+url = "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml"
+
+[[sources]]
+id = "npr-top"
+provider_id = "npr"
+channel_id = "top"
+channel_label = "Top Stories"
+channel_role = "aggregate"
+stream_kind = "curated"
+item_kind = "article"
+topics = []
+surfaces = ["news"]
+language = "en-US"
+market = "US"
+interval_seconds = 1800
+max_items = 100
+enabled = true
+provider_name = "NPR"
+provider_kind = "publisher"
+[sources.endpoint]
+adapter = "rss"
+url = "https://feeds.npr.org/1001/rss.xml"
+
+[[sources]]
+id = "aljazeera-all"
+provider_id = "aljazeera"
+channel_id = "all"
+channel_label = "All"
+channel_role = "aggregate"
+stream_kind = "latest"
+item_kind = "article"
+topics = ["world"]
+surfaces = ["news"]
+language = "en"
+market = "QA"
+interval_seconds = 1800
+max_items = 100
+enabled = true
+provider_name = "Al Jazeera"
+provider_kind = "publisher"
+[sources.endpoint]
+adapter = "rss"
+url = "https://www.aljazeera.com/xml/rss/all.xml"
+
+[[sources]]
+id = "dw-all"
+provider_id = "dw"
+channel_id = "all"
+channel_label = "All"
+channel_role = "aggregate"
+stream_kind = "latest"
+item_kind = "article"
+topics = ["world"]
+surfaces = ["news"]
+language = "en"
+market = "DE"
+interval_seconds = 1800
+max_items = 100
+enabled = true
+provider_name = "DW"
+provider_kind = "publisher"
+[sources.endpoint]
+adapter = "rss"
+url = "https://rss.dw.com/xml/rss-en-all"
+
+[[sources]]
+id = "sky-home"
+provider_id = "skynews"
+channel_id = "home"
+channel_label = "Home"
+channel_role = "aggregate"
+stream_kind = "curated"
+item_kind = "article"
+topics = ["world"]
+surfaces = ["news"]
+language = "en-GB"
+market = "GB"
+interval_seconds = 1800
+max_items = 100
+enabled = true
+provider_name = "Sky News"
+provider_kind = "publisher"
+[sources.endpoint]
+adapter = "rss"
+url = "https://feeds.skynews.com/feeds/rss/home.xml"
+
+[[sources]]
+id = "independent-news"
+provider_id = "independent"
+channel_id = "news"
+channel_label = "News"
+channel_role = "section"
+stream_kind = "latest"
+item_kind = "article"
+topics = ["world"]
+surfaces = ["news"]
+language = "en-GB"
+market = "GB"
+interval_seconds = 1800
+max_items = 100
+enabled = true
+provider_name = "The Independent"
+provider_kind = "publisher"
+[sources.endpoint]
+adapter = "rss"
+url = "https://www.independent.co.uk/news/rss"
+
+[[sources]]
+id = "economist-finance"
+provider_id = "economist"
+channel_id = "finance"
+channel_label = "Finance"
+channel_role = "section"
+stream_kind = "latest"
+item_kind = "article"
+topics = ["business", "markets"]
+surfaces = ["news"]
+language = "en-GB"
+market = "GB"
+interval_seconds = 1800
+max_items = 100
+enabled = true
+provider_name = "The Economist"
+provider_kind = "publisher"
+[sources.endpoint]
+adapter = "rss"
+url = "https://www.economist.com/finance-and-economics/rss.xml"
+
+[[sources]]
+id = "wsj-world"
+provider_id = "wsj"
+channel_id = "world"
+channel_label = "World"
+channel_role = "section"
+stream_kind = "latest"
+item_kind = "article"
+topics = ["world"]
+surfaces = ["news"]
+language = "en-US"
+market = "US"
+interval_seconds = 1800
+max_items = 100
+enabled = true
+provider_name = "The Wall Street Journal"
+provider_kind = "publisher"
+[sources.endpoint]
+adapter = "rss"
+url = "https://feeds.content.dowjones.io/public/rss/RSSWorldNews"

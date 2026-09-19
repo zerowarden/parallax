@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from parallax.domain import HeadlineCandidate
-from parallax.identity import identity_key
+from parallax.identity import identity_key, identity_keys
 from parallax.normalization import canonicalize_url
 
 
@@ -12,8 +12,8 @@ def test_url_shaped_external_id_remains_an_opaque_upstream_id() -> None:
         external_id="HTTPS://EXAMPLE.TEST:443/story#section",
     )
 
-    assert identity_key(candidate) == (
-        "external:HTTPS://EXAMPLE.TEST:443/story#section"
+    assert identity_key(candidate, provider_id="fixture") == (
+        "external:fixture:HTTPS://EXAMPLE.TEST:443/story#section"
     )
 
 
@@ -29,7 +29,9 @@ def test_distinct_url_shaped_external_ids_do_not_collapse() -> None:
         external_id="https://ids.example.test/item#second",
     )
 
-    assert identity_key(first) != identity_key(second)
+    assert identity_key(first, provider_id="fixture") != identity_key(
+        second, provider_id="fixture"
+    )
 
 
 def test_non_url_external_id_remains_preferred() -> None:
@@ -39,7 +41,13 @@ def test_non_url_external_id_remains_preferred() -> None:
         external_id="article-42",
     )
 
-    assert identity_key(candidate) == "external:article-42"
+    assert (
+        identity_key(candidate, provider_id="fixture") == "external:fixture:article-42"
+    )
+    assert identity_keys(candidate, provider_id="fixture") == (
+        "external:fixture:article-42",
+        "url:https://example.test/story",
+    )
 
 
 def test_missing_external_id_uses_canonical_url_identity() -> None:
@@ -48,7 +56,10 @@ def test_missing_external_id_uses_canonical_url_identity() -> None:
         url="HTTPS://EXAMPLE.TEST:443/story#section",
     )
 
-    assert identity_key(candidate) == "url:https://example.test/story"
+    assert (
+        identity_key(candidate, provider_id="fixture")
+        == "url:https://example.test/story"
+    )
 
 
 def test_utm_variants_share_canonical_url_but_not_identity() -> None:
@@ -62,7 +73,9 @@ def test_utm_variants_share_canonical_url_but_not_identity() -> None:
     )
 
     assert canonicalize_url(first.url) == canonicalize_url(second.url)
-    assert identity_key(first) != identity_key(second)
+    assert identity_key(first, provider_id="fixture") != identity_key(
+        second, provider_id="fixture"
+    )
 
 
 def test_semantic_query_keys_remain_part_of_url_identity() -> None:
@@ -76,4 +89,18 @@ def test_semantic_query_keys_remain_part_of_url_identity() -> None:
     )
 
     assert canonicalize_url(first.url) != canonicalize_url(second.url)
-    assert identity_key(first) != identity_key(second)
+    assert identity_key(first, provider_id="fixture") != identity_key(
+        second, provider_id="fixture"
+    )
+
+
+def test_upstream_ids_are_scoped_to_their_provider() -> None:
+    candidate = HeadlineCandidate(
+        title="Headline",
+        url="https://example.test/story",
+        external_id="article-42",
+    )
+
+    assert identity_key(candidate, provider_id="ft") != identity_key(
+        candidate, provider_id="guardian"
+    )

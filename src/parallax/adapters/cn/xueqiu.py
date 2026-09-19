@@ -5,14 +5,13 @@ from typing import Any
 
 from parallax.adapters.base import AdapterStep, CompleteStep, ContinueStep
 from parallax.adapters.common.http import cookie_header
-from parallax.adapters.common.options import option_int
 from parallax.adapters.common.parsing import (
     decode_json_object,
     require_list,
     require_mapping,
     text,
 )
-from parallax.config import SourceConfig
+from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
@@ -33,19 +32,19 @@ class XueqiuHotstockAdapter:
     collects them and step 2 sends them explicitly. Ad entries are skipped.
     """
 
-    def first_step(self, source: SourceConfig) -> AdapterStep:
+    def first_step(self, source: Source) -> AdapterStep:
         return ContinueStep(
             request=RequestSpec(method="GET", url=BOOTSTRAP_URL),
         )
 
     def next_step(
         self,
-        source: SourceConfig,
+        source: Source,
         response: HttpResponse,
         context: Mapping[str, object],
     ) -> AdapterStep:
         if not context:
-            size = option_int(source, "max_items", 30)
+            size = source.max_items
             return ContinueStep(
                 request=RequestSpec(
                     method="GET",
@@ -58,7 +57,7 @@ class XueqiuHotstockAdapter:
         return CompleteStep(batch=_parse_hot(source, response))
 
 
-def _parse_hot(source: SourceConfig, response: HttpResponse) -> ParsedBatch:
+def _parse_hot(source: Source, response: HttpResponse) -> ParsedBatch:
     payload = decode_json_object(response.content, label="Xueqiu")
     data = require_mapping(
         payload.get("data"),
@@ -69,7 +68,7 @@ def _parse_hot(source: SourceConfig, response: HttpResponse) -> ParsedBatch:
         "Xueqiu response does not contain an items list",
     )
 
-    max_items = option_int(source, "max_items", 30)
+    max_items = source.max_items
     candidates: list[HeadlineCandidate] = []
     for entry in entries:
         if not isinstance(entry, dict) or entry.get("ad"):
@@ -78,7 +77,7 @@ def _parse_hot(source: SourceConfig, response: HttpResponse) -> ParsedBatch:
         title = text(entry.get("name"))
         if not code or not title:
             continue
-        metrics: dict[str, Any] = {"stream_kind": source.stream_kind}
+        metrics: dict[str, Any] = {}
         percent = entry.get("percent")
         if isinstance(percent, (int, float)) and not isinstance(percent, bool):
             metrics["percent"] = percent

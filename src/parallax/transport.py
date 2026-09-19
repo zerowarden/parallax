@@ -13,7 +13,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from parallax.config import AuthConfig, HttpConfig, SourceConfig
+from parallax.config import AuthConfig, HttpConfig, Source
 from parallax.domain import HttpResponse, RequestSpec, StreamState
 
 LOGGER = logging.getLogger(__name__)
@@ -33,7 +33,7 @@ class Transport(Protocol):
     def request(
         self,
         spec: RequestSpec,
-        source: SourceConfig,
+        source: Source,
         state: StreamState,
     ) -> HttpResponse:
         """Perform the configured request under shared HTTP policy."""
@@ -76,7 +76,7 @@ class HttpTransport(AbstractContextManager["HttpTransport"]):
     def request(
         self,
         spec: RequestSpec,
-        source: SourceConfig,
+        source: Source,
         state: StreamState,
     ) -> HttpResponse:
         """Perform the configured request under shared HTTP policy."""
@@ -229,7 +229,7 @@ class HttpTransport(AbstractContextManager["HttpTransport"]):
     def _retry_transient(
         self,
         request: httpx.Request,
-        source: SourceConfig,
+        source: Source,
         attempt: int,
         error: httpx.TransportError,
     ) -> bool:
@@ -259,7 +259,7 @@ class HttpTransport(AbstractContextManager["HttpTransport"]):
     def _is_safe_redirect(
         current: httpx.Request,
         target: httpx.Request,
-        source: SourceConfig,
+        source: Source,
     ) -> bool:
         is_downgrade = current.url.scheme == "https" and target.url.scheme == "http"
         if is_downgrade and not source.redirect.allow_https_downgrade:

@@ -9,7 +9,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
-from parallax.config import SourceConfig
+from parallax.config import Source
 from parallax.diagnostics import SourceDiagnostic
 from parallax.domain import (
     IngestionFailure,
@@ -79,25 +79,51 @@ class Presenter:
     def __init__(self, console: Console | None = None) -> None:
         self.console = console or Console()
 
-    def sources(self, sources: Iterable[SourceConfig]) -> None:
+    def sources(self, sources: Iterable[Source]) -> None:
         table = Table(title="Configured sources")
         table.add_column("ID")
-        table.add_column("Name")
-        table.add_column("Region")
+        table.add_column("Provider")
+        table.add_column("Channel")
         table.add_column("Adapter")
-        table.add_column("Method")
         table.add_column("Schedule")
         table.add_column("Enabled")
         for source in sources:
             table.add_row(
                 _literal(source.id),
-                _literal(source.name),
-                _literal(source.region),
-                _literal(source.adapter),
-                _literal(source.retrieval_method),
-                f"{source.schedule_seconds}s",
+                _literal(source.provider_name),
+                _literal(source.channel_label),
+                _literal(source.endpoint.adapter),
+                f"{source.interval_seconds}s",
                 "yes" if source.enabled else "no",
             )
+        self.console.print(table)
+
+    def source_detail(self, source: Source) -> None:
+        table = Table(title=_literal(f"Source {source.id}"))
+        table.add_column("Field", style="bold", no_wrap=True)
+        table.add_column("Value", overflow="fold")
+        rows = (
+            ("Source", source.id),
+            ("Provider", f"{source.provider_name} ({source.provider_id})"),
+            ("Provider kind", source.provider_kind),
+            ("Channel", source.channel_label),
+            ("Channel id", source.channel_id),
+            ("Channel role", source.channel_role),
+            ("Item", _item_label(source)),
+            ("Stream", source.stream_kind),
+            ("Topics", ", ".join(source.topics) or "-"),
+            ("Surfaces", ", ".join(sorted(source.surfaces))),
+            ("Adapter", source.endpoint.adapter),
+            ("URL", source.endpoint.url),
+            ("Interval", f"{source.interval_seconds}s"),
+            ("Max items", str(source.max_items)),
+            ("Language", source.language),
+            ("Market", source.market),
+            ("Enabled", "yes" if source.enabled else "no"),
+            ("Defined in", source.defined_in or "-"),
+        )
+        for field, value in rows:
+            table.add_row(field, _literal(value))
         self.console.print(table)
 
     def fetch_results(
@@ -288,6 +314,14 @@ def _dt(value: datetime | None) -> str:
 
 def _count(value: int | None) -> str:
     return "-" if value is None else str(value)
+
+
+def _item_label(source: Source) -> str:
+    if source.item_kind == "entity":
+        return f"entity ({source.entity_kind})"
+    if source.item_variant is not None:
+        return f"{source.item_kind} ({source.item_variant})"
+    return source.item_kind
 
 
 def _error_text(error_type: str, error_message: str | None) -> str:

@@ -7,13 +7,12 @@ from urllib.parse import urljoin, urlsplit
 from selectolax.parser import HTMLParser
 
 from parallax.adapters.common.http import html_request
-from parallax.adapters.common.options import option_int
 from parallax.adapters.common.parsing import (
     decode_html,
     parse_relative_time,
     text,
 )
-from parallax.config import SourceConfig
+from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
@@ -33,13 +32,13 @@ class WenweipoNewsAdapter:
     the raw label preserved.
     """
 
-    def build_request(self, source: SourceConfig) -> RequestSpec:
+    def build_request(self, source: Source) -> RequestSpec:
         return html_request(source)
 
-    def parse(self, source: SourceConfig, response: HttpResponse) -> ParsedBatch:
+    def parse(self, source: Source, response: HttpResponse) -> ParsedBatch:
         tree = HTMLParser(decode_html(response.content, label="Wen Wei Po"))
 
-        max_items = option_int(source, "max_items", 50)
+        max_items = source.max_items
         candidates: list[HeadlineCandidate] = []
         seen: set[str] = set()
         for card in tree.css("div.describe"):
@@ -53,7 +52,7 @@ class WenweipoNewsAdapter:
             seen.add(href)
             article_match = ARTICLE_PATH.search(urlsplit(href).path)
 
-            metrics: dict[str, Any] = {"stream_kind": source.stream_kind}
+            metrics: dict[str, Any] = {}
             age_node = card.css_first("time.time")
             raw_published = age_node.text(strip=True) if age_node is not None else ""
             candidates.append(

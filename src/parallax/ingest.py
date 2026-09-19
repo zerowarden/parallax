@@ -19,7 +19,7 @@ from parallax.adapters.execution import (
     raise_for_status,
     run_adapter_refresh,
 )
-from parallax.config import IngestionConfig, SourceConfig
+from parallax.config import IngestionConfig, Source
 from parallax.domain import (
     HttpResponse,
     IngestionBatchResult,
@@ -78,7 +78,7 @@ class IngestionService:
 
     def fetch_source(
         self,
-        source: SourceConfig,
+        source: Source,
         since: datetime | None = None,
     ) -> IngestionSummary:
         run_id = self._storage.start_fetch_run(source.id)
@@ -94,7 +94,7 @@ class IngestionService:
 
     def fetch_sources(
         self,
-        sources: Sequence[SourceConfig],
+        sources: Sequence[Source],
         since: datetime | None = None,
     ) -> IngestionBatchResult:
         """Fetch independent sources concurrently and commit outcomes serially."""
@@ -108,10 +108,8 @@ class IngestionService:
         )
         completed: dict[int, IngestionSummary] = {}
         failures: dict[int, IngestionFailure] = {}
-        pending: dict[
-            Future[_PreparedOutcome], tuple[int, SourceConfig, int, datetime]
-        ] = {}
-        uncommitted: tuple[int, SourceConfig, int, datetime] | None = None
+        pending: dict[Future[_PreparedOutcome], tuple[int, Source, int, datetime]] = {}
+        uncommitted: tuple[int, Source, int, datetime] | None = None
         source_iter = iter(enumerate(sources))
 
         with ThreadPoolExecutor(
@@ -185,11 +183,11 @@ class IngestionService:
 
     def _prepare(
         self,
-        source: SourceConfig,
+        source: Source,
         state: StreamState,
         since: datetime | None,
     ) -> _PreparedOutcome:
-        adapter = self._adapters.get(source.adapter)
+        adapter = self._adapters.get(source.endpoint.adapter)
         if since is not None and isinstance(adapter, HistoricalAdapter):
             requests = adapter.build_history_requests(source, since)
             if requests:
@@ -197,20 +195,20 @@ class IngestionService:
             LOGGER.info(
                 "operation=history_empty source_id=%s adapter=%s",
                 source.id,
-                source.adapter,
+                source.endpoint.adapter,
             )
         elif since is not None:
             LOGGER.info(
                 "operation=history_unsupported source_id=%s adapter=%s",
                 source.id,
-                source.adapter,
+                source.endpoint.adapter,
             )
         if isinstance(adapter, (MultiRequestAdapter, SteppedAdapter)):
             return self._prepare_combined(source, adapter)
         return self._prepare_single(source, adapter, state)
 
     def _prepare_single(
-        self, source: SourceConfig, adapter: SourceAdapter, state: StreamState
+        self, source: Source, adapter: SourceAdapter, state: StreamState
     ) -> _PreparedSuccess | _PreparedNotModified:
         refresh = run_adapter_refresh(adapter, source, self._transport, state)
         response = refresh.responses[0]
@@ -229,7 +227,7 @@ class IngestionService:
 
     def _prepare_combined(
         self,
-        source: SourceConfig,
+        source: Source,
         adapter: MultiRequestAdapter | SteppedAdapter,
     ) -> _PreparedSuccess:
         refresh = run_adapter_refresh(
@@ -249,7 +247,7 @@ class IngestionService:
 
     def _prepare_history(
         self,
-        source: SourceConfig,
+        source: Source,
         adapter: HistoricalAdapter,
         requests: tuple[RequestSpec, ...],
         since: datetime,
@@ -272,7 +270,7 @@ class IngestionService:
 
     def _commit_prepared(
         self,
-        source: SourceConfig,
+        source: Source,
         run_id: int,
         now: datetime,
         prepared: _PreparedOutcome,
@@ -283,7 +281,7 @@ class IngestionService:
                 run_id,
                 prepared.etag,
                 prepared.last_modified,
-                now + timedelta(seconds=source.schedule_seconds),
+                now + timedelta(seconds=source.interval_seconds),
             )
         if isinstance(prepared, _PreparedHistory):
             return self._storage.record_history(source, run_id, prepared.batch)
@@ -294,29 +292,29 @@ class IngestionService:
             batch=prepared.batch,
             response_etag=prepared.etag,
             response_last_modified=prepared.last_modified,
-            next_run_at=now + timedelta(seconds=source.schedule_seconds),
+            next_run_at=now + timedelta(seconds=source.interval_seconds),
             observed_at=prepared.observed_at,
         )
 
-    def _validate(self, source: SourceConfig, parsed: ParsedBatch) -> ValidatedBatch:
+    def _validate(self, source: Source, parsed: ParsedBatch) -> ValidatedBatch:
         LOGGER.info(
             "operation=parse_batch source_id=%s candidates=%s warnings=%s",
             source.id,
             len(parsed.candidates),
             len(parsed.warnings),
         )
-        return self._validator.validate(source.id, parsed)
+        return self._validator.validate(
+            source.id, parsed, provider_id=source.provider_id
+        )
 
-    def _validate_history(
-        self, source: SourceConfig, parsed: ParsedBatch
-    ) -> ValidatedBatch:
+    def _validate_history(self, source: Source, parsed: ParsedBatch) -> ValidatedBatch:
         if parsed.candidates:
             return self._validate(source, parsed)
         return ValidatedBatch((), 0, parsed.warnings)
 
     def _record_preparation_failure(
         self,
-        source: SourceConfig,
+        source: Source,
         run_id: int,
         attempted_at: datetime,
         error: Exception,

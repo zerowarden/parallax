@@ -5,16 +5,16 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Protocol, runtime_checkable
 
-from parallax.config import SourceConfig
+from parallax.config import Source
 from parallax.domain import HttpResponse, ParsedBatch, RequestSpec
 
 
 class SourceAdapter(Protocol):
-    def build_request(self, source: SourceConfig) -> RequestSpec:
+    def build_request(self, source: Source) -> RequestSpec:
         """Build the upstream request without performing I/O."""
         ...
 
-    def parse(self, source: SourceConfig, response: HttpResponse) -> ParsedBatch:
+    def parse(self, source: Source, response: HttpResponse) -> ParsedBatch:
         """Parse an upstream response without persistence or display concerns."""
         ...
 
@@ -27,13 +27,13 @@ class MultiRequestAdapter(Protocol):
     orchestration layer performs every request through the shared transport.
     """
 
-    def build_requests(self, source: SourceConfig) -> tuple[RequestSpec, ...]:
+    def build_requests(self, source: Source) -> tuple[RequestSpec, ...]:
         """Build the ordered upstream requests without performing I/O."""
         ...
 
     def parse_responses(
         self,
-        source: SourceConfig,
+        source: Source,
         responses: tuple[HttpResponse, ...],
     ) -> ParsedBatch:
         """Parse the ordered upstream responses without persistence concerns."""
@@ -68,13 +68,13 @@ class SteppedAdapter(Protocol):
     the shared transport under a bounded step count.
     """
 
-    def first_step(self, source: SourceConfig) -> AdapterStep:
+    def first_step(self, source: Source) -> AdapterStep:
         """Build the first request or complete immediately."""
         ...
 
     def next_step(
         self,
-        source: SourceConfig,
+        source: Source,
         response: HttpResponse,
         context: Mapping[str, object],
     ) -> AdapterStep:
@@ -97,7 +97,7 @@ class HistoricalAdapter(Protocol):
 
     def build_history_requests(
         self,
-        source: SourceConfig,
+        source: Source,
         since: datetime,
     ) -> tuple[RequestSpec, ...]:
         """Build the requests covering items published since ``since``."""
@@ -105,7 +105,7 @@ class HistoricalAdapter(Protocol):
 
     def parse_history_responses(
         self,
-        source: SourceConfig,
+        source: Source,
         responses: tuple[HttpResponse, ...],
         since: datetime,
     ) -> ParsedBatch:

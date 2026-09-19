@@ -3,9 +3,8 @@ from __future__ import annotations
 from typing import Any
 
 from parallax.adapters.common.http import json_request
-from parallax.adapters.common.options import option_int
 from parallax.adapters.common.parsing import decode_json_object, require_list, text
-from parallax.config import SourceConfig
+from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
@@ -25,8 +24,8 @@ class IqiyiHotRanklistAdapter:
     than a fabricated midnight publication timestamp.
     """
 
-    def build_request(self, source: SourceConfig) -> RequestSpec:
-        count = option_int(source, "max_items", 30)
+    def build_request(self, source: Source) -> RequestSpec:
+        count = source.max_items
         return json_request(
             source,
             headers={"Referer": "https://www.iqiyi.com"},
@@ -41,7 +40,7 @@ class IqiyiHotRanklistAdapter:
             },
         )
 
-    def parse(self, source: SourceConfig, response: HttpResponse) -> ParsedBatch:
+    def parse(self, source: Source, response: HttpResponse) -> ParsedBatch:
         payload = decode_json_object(response.content, label="iQiyi")
         code = payload.get("code")
         if code != 0:
@@ -69,12 +68,12 @@ class IqiyiHotRanklistAdapter:
             "iQiyi video block does not contain a data list",
         )
 
-        max_items = option_int(source, "max_items", 30)
+        max_items = source.max_items
         candidates: list[HeadlineCandidate] = []
         for entry in entries[:max_items]:
             if not isinstance(entry, dict):
                 continue
-            metrics: dict[str, Any] = {"stream_kind": source.stream_kind}
+            metrics: dict[str, Any] = {}
             show_date = text(entry.get("showDate"))
             if show_date:
                 metrics["show_date"] = show_date

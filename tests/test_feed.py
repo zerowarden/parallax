@@ -22,6 +22,8 @@ def _row(
     position: int | None = 1,
     item_id: int = 1,
     item_kind: str = "article",
+    entity_kind: str | None = None,
+    item_variant: str | None = None,
 ) -> HeadlineRow:
     return HeadlineRow(
         source_id=source_name.casefold(),
@@ -29,6 +31,8 @@ def _row(
         item_id=item_id,
         stream_kind="latest",
         item_kind=item_kind,
+        entity_kind=entity_kind,
+        item_variant=item_variant,
         position=position,
         title=title,
         url=url,
@@ -128,8 +132,9 @@ def test_title_only_matches_respect_item_kind() -> None:
         _row(
             "Beta",
             "Shared title",
-            "https://beta.example/ranking",
-            item_kind="ranking",
+            "https://beta.example/security",
+            item_kind="entity",
+            entity_kind="security",
         ),
     ]
 
@@ -138,8 +143,31 @@ def test_title_only_matches_respect_item_kind() -> None:
     assert len(groups) == 2
     assert {group.representative.item_kind for group in groups} == {
         "article",
-        "ranking",
+        "entity",
     }
+
+
+def test_title_only_matches_respect_entity_kind() -> None:
+    rows = [
+        _row(
+            "Alpha",
+            "Shared title",
+            "https://alpha.example/game",
+            item_kind="entity",
+            entity_kind="game",
+        ),
+        _row(
+            "Beta",
+            "Shared title",
+            "https://beta.example/movie",
+            item_kind="entity",
+            entity_kind="movie",
+        ),
+    ]
+
+    groups = _groups(rows)
+
+    assert len(groups) == 2
 
 
 def test_groups_keep_distinct_stories_separate() -> None:

@@ -4,14 +4,13 @@ import html
 from typing import Any
 
 from parallax.adapters.common.http import json_request
-from parallax.adapters.common.options import option_int
 from parallax.adapters.common.parsing import (
     decode_json_object,
     require_list,
     require_mapping,
     text,
 )
-from parallax.config import SourceConfig
+from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
@@ -30,10 +29,10 @@ class TiebaHotAdapter:
     upstream rank.
     """
 
-    def build_request(self, source: SourceConfig) -> RequestSpec:
+    def build_request(self, source: Source) -> RequestSpec:
         return json_request(source)
 
-    def parse(self, source: SourceConfig, response: HttpResponse) -> ParsedBatch:
+    def parse(self, source: Source, response: HttpResponse) -> ParsedBatch:
         payload = decode_json_object(response.content, label="Tieba")
         data = require_mapping(
             payload.get("data"),
@@ -48,7 +47,7 @@ class TiebaHotAdapter:
             "Tieba response does not contain a topic_list",
         )
 
-        max_items = option_int(source, "max_items", 30)
+        max_items = source.max_items
         candidates: list[HeadlineCandidate] = []
         for entry in entries:
             if not isinstance(entry, dict):
@@ -58,7 +57,7 @@ class TiebaHotAdapter:
             url = html.unescape(text(entry.get("topic_url")))
             if not external_id or not title or not url:
                 continue
-            metrics: dict[str, Any] = {"stream_kind": source.stream_kind}
+            metrics: dict[str, Any] = {}
             discuss_count = entry.get("discuss_num")
             if isinstance(discuss_count, int):
                 metrics["discuss_count"] = discuss_count

@@ -5,9 +5,8 @@ from urllib.parse import urljoin
 from selectolax.parser import HTMLParser
 
 from parallax.adapters.common.http import html_request
-from parallax.adapters.common.options import option_int
 from parallax.adapters.common.parsing import decode_html
-from parallax.config import SourceConfig
+from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
@@ -34,13 +33,13 @@ class KaopuNewsAdapter:
     ``provenance`` metadata; story pages are not fetched.
     """
 
-    def build_request(self, source: SourceConfig) -> RequestSpec:
+    def build_request(self, source: Source) -> RequestSpec:
         return html_request(source, headers={"User-Agent": DESKTOP_USER_AGENT})
 
-    def parse(self, source: SourceConfig, response: HttpResponse) -> ParsedBatch:
+    def parse(self, source: Source, response: HttpResponse) -> ParsedBatch:
         tree = HTMLParser(decode_html(response.content, label="Kaopu"))
 
-        max_items = option_int(source, "max_items", 30)
+        max_items = source.max_items
         candidates: list[HeadlineCandidate] = []
         seen: set[str] = set()
         for article in tree.css("article"):
@@ -54,7 +53,7 @@ class KaopuNewsAdapter:
                 continue
             seen.add(href)
 
-            metrics: dict[str, object] = {"stream_kind": source.stream_kind}
+            metrics: dict[str, object] = {}
             meta = article.css_first(".story-meta span")
             recency = meta.text(strip=True) if meta is not None else ""
             if recency:

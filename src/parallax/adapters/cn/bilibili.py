@@ -4,14 +4,13 @@ from typing import Any
 from urllib.parse import quote
 
 from parallax.adapters.common.http import json_request
-from parallax.adapters.common.options import option_int
 from parallax.adapters.common.parsing import (
     decode_json_object,
     require_list,
     require_mapping,
     text,
 )
-from parallax.config import SourceConfig
+from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
@@ -33,10 +32,10 @@ class BilibiliHotSearchAdapter:
     search URL.
     """
 
-    def build_request(self, source: SourceConfig) -> RequestSpec:
+    def build_request(self, source: Source) -> RequestSpec:
         return json_request(source)
 
-    def parse(self, source: SourceConfig, response: HttpResponse) -> ParsedBatch:
+    def parse(self, source: Source, response: HttpResponse) -> ParsedBatch:
         payload = decode_json_object(response.content, label="Bilibili")
         code = payload.get("code")
         if code != 0:
@@ -46,13 +45,13 @@ class BilibiliHotSearchAdapter:
             "Bilibili response does not contain a list",
         )
 
-        max_items = option_int(source, "max_items", 30)
+        max_items = source.max_items
         candidates: list[HeadlineCandidate] = []
         for position, item in enumerate(items[:max_items], start=1):
             if not isinstance(item, dict):
                 continue
             keyword = text(item.get("keyword"))
-            metrics: dict[str, Any] = {"stream_kind": source.stream_kind}
+            metrics: dict[str, Any] = {}
             heat_score = item.get("heat_score")
             if isinstance(heat_score, (int, float)):
                 metrics["heat_score"] = heat_score
@@ -81,15 +80,15 @@ class BilibiliHotVideoAdapter:
     are kept as bounded metrics.
     """
 
-    def build_request(self, source: SourceConfig) -> RequestSpec:
-        limit = option_int(source, "max_items", 30)
+    def build_request(self, source: Source) -> RequestSpec:
+        limit = source.max_items
         return json_request(
             source,
             headers={"Referer": REFERER},
             params={"ps": str(limit), "pn": "1"},
         )
 
-    def parse(self, source: SourceConfig, response: HttpResponse) -> ParsedBatch:
+    def parse(self, source: Source, response: HttpResponse) -> ParsedBatch:
         payload = decode_json_object(response.content, label="Bilibili")
         _require_ok(payload)
         data = require_mapping(
@@ -101,7 +100,7 @@ class BilibiliHotVideoAdapter:
             "Bilibili response does not contain a list",
         )
 
-        max_items = option_int(source, "max_items", 30)
+        max_items = source.max_items
         candidates: list[HeadlineCandidate] = []
         for item in items:
             if not isinstance(item, dict):
@@ -110,7 +109,7 @@ class BilibiliHotVideoAdapter:
             title = text(item.get("title"))
             if not bvid or not title:
                 continue
-            metrics: dict[str, Any] = {"stream_kind": source.stream_kind}
+            metrics: dict[str, Any] = {}
             owner = item.get("owner")
             if isinstance(owner, dict):
                 author = text(owner.get("name"))
@@ -150,14 +149,14 @@ class BilibiliRankingAdapter:
     and ranking points are kept as bounded metrics.
     """
 
-    def build_request(self, source: SourceConfig) -> RequestSpec:
+    def build_request(self, source: Source) -> RequestSpec:
         return json_request(
             source,
             headers={"Referer": REFERER},
             params={"rid": "0", "type": "all"},
         )
 
-    def parse(self, source: SourceConfig, response: HttpResponse) -> ParsedBatch:
+    def parse(self, source: Source, response: HttpResponse) -> ParsedBatch:
         payload = decode_json_object(response.content, label="Bilibili")
         _require_ok(payload)
         data = require_mapping(
@@ -169,7 +168,7 @@ class BilibiliRankingAdapter:
             "Bilibili response does not contain a list",
         )
 
-        max_items = option_int(source, "max_items", 30)
+        max_items = source.max_items
         candidates: list[HeadlineCandidate] = []
         for item in items:
             if not isinstance(item, dict):
@@ -178,7 +177,7 @@ class BilibiliRankingAdapter:
             title = text(item.get("title"))
             if not bvid or not title:
                 continue
-            metrics: dict[str, Any] = {"stream_kind": source.stream_kind}
+            metrics: dict[str, Any] = {}
             author = text(item.get("author"))
             if author:
                 metrics["author"] = author

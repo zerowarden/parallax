@@ -43,8 +43,53 @@ views, Today / 3 / 7 / 30 day filters, source filtering, headline search, and
 pagination. Date filtering is based on when Parallax first observed an item,
 not the publisher's publication time.
 
-To keep each request bounded, the browser shows source-local appearances;
-cross-source grouping remains available in the terminal feed.
+All / News / Discover placement is explicit source configuration, not inferred
+from item or stream kinds. Items observed through several channels are
+deduplicated at item level before rendering.
+
+## Configuration
+
+`config/config.toml` contains only Parallax package settings: `[app]`,
+`[http]`, `[ingestion]`, `[scheduler]`, and `[validation]`.
+
+Sources are discovered recursively from the `sources/` directory next to the
+root file. Subdirectories and file names are organizational only; every TOML
+file is validated identically. Each `[[sources]]` entry is self-contained:
+
+```toml
+[[sources]]
+id = "thepaper-hot"
+provider_id = "thepaper"
+channel_id = "hot"
+channel_label = "热榜"
+channel_role = "view"
+stream_kind = "hot"
+item_kind = "article"
+topics = []
+surfaces = ["discover"]
+language = "zh-CN"
+market = "CN"
+interval_seconds = 1800
+max_items = 30
+enabled = true
+provider_name = "澎湃新闻"
+provider_kind = "publisher"
+[sources.endpoint]
+adapter = "thepaper_hot"
+url = "https://cache.thepaper.cn/contentapi/wwwIndex/rightSidebar"
+```
+
+File names and locations carry no semantic meaning. Inspect the catalog with:
+
+```bash
+uv run parallax config lint
+uv run parallax config resolve
+uv run parallax config source thepaper-hot
+```
+
+The database is a local archive and schema version 0 requires a recreated
+database; run `uv run parallax init` against a fresh `data/parallax.db` after
+changing the schema.
 
 ## Development
 

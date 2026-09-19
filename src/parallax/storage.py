@@ -10,26 +10,28 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from parallax.config import SourceConfig
+from parallax.config import Source
 from parallax.domain import (
-    DISCOVER_ITEM_KINDS,
-    DISCOVER_STREAM_KINDS,
     AnalysisItem,
     BrowseView,
     ChangeEvent,
+    EntityKind,
     HeadlineCandidate,
     IngestionSummary,
+    ItemVariant,
     StreamState,
     ValidatedBatch,
     is_browse_view,
+    is_entity_kind,
     is_item_kind,
+    is_item_variant,
     is_stream_kind,
 )
-from parallax.identity import identity_key
+from parallax.identity import identity_keys
 from parallax.normalization import canonicalize_url, normalize_title_for_version
 
 LOGGER = logging.getLogger(__name__)
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 0
 
 _LATEST_ITEM_VERSION_JOIN_SQL = """
     JOIN item_versions iv ON iv.id = (
@@ -49,6 +51,8 @@ class HeadlineRow:
     item_id: int
     stream_kind: str
     item_kind: str
+    entity_kind: str | None
+    item_variant: str | None
     position: int | None
     title: str
     url: str
@@ -106,18 +110,35 @@ class Storage:
 
                 CREATE TABLE IF NOT EXISTS sources (
                     source_id TEXT PRIMARY KEY,
-                    name TEXT NOT NULL,
-                    region TEXT NOT NULL,
-                    language TEXT NOT NULL,
-                    adapter TEXT NOT NULL,
-                    url TEXT NOT NULL,
+                    provider_id TEXT NOT NULL,
+                    provider_name TEXT NOT NULL,
+                    provider_kind TEXT NOT NULL,
+                    channel_id TEXT NOT NULL,
+                    channel_label TEXT NOT NULL,
+                    channel_role TEXT NOT NULL,
                     stream_kind TEXT NOT NULL,
                     item_kind TEXT NOT NULL,
+                    entity_kind TEXT,
+                    item_variant TEXT,
+                    topics_json TEXT NOT NULL,
+                    language TEXT NOT NULL,
+                    market TEXT NOT NULL,
+                    adapter TEXT NOT NULL,
+                    url TEXT NOT NULL,
                     enabled INTEGER NOT NULL,
-                    schedule_seconds INTEGER NOT NULL,
+                    interval_seconds INTEGER NOT NULL,
                     config_json TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS source_surfaces (
+                    source_id TEXT NOT NULL REFERENCES sources(source_id),
+                    surface TEXT NOT NULL,
+                    PRIMARY KEY(source_id, surface)
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_source_surfaces_surface
+                    ON source_surfaces(surface, source_id);
 
                 CREATE TABLE IF NOT EXISTS stream_state (
                     source_id TEXT PRIMARY KEY REFERENCES sources(source_id),
@@ -152,24 +173,49 @@ class Storage:
 
                 CREATE TABLE IF NOT EXISTS items (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    source_id TEXT NOT NULL REFERENCES sources(source_id),
-                    identity_key TEXT NOT NULL,
+                    identity_key TEXT NOT NULL UNIQUE,
                     external_id TEXT,
                     original_url TEXT NOT NULL,
                     canonical_url TEXT NOT NULL,
                     item_kind TEXT NOT NULL,
+                    entity_kind TEXT,
+                    item_variant TEXT,
                     published_at TEXT,
                     raw_published_at TEXT,
                     first_seen_at TEXT NOT NULL,
-                    last_seen_at TEXT NOT NULL,
-                    UNIQUE(source_id, identity_key)
+                    last_seen_at TEXT NOT NULL
                 );
-
-                CREATE INDEX IF NOT EXISTS idx_items_source_published
-                    ON items(source_id, published_at DESC);
 
                 CREATE INDEX IF NOT EXISTS idx_items_first_seen
                     ON items(first_seen_at);
+
+                CREATE INDEX IF NOT EXISTS idx_items_published
+                    ON items(published_at DESC);
+
+                CREATE TABLE IF NOT EXISTS item_url_identities (
+                    item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+                    identity_key TEXT NOT NULL,
+                    PRIMARY KEY(item_id, identity_key)
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_item_url_identities_key
+                    ON item_url_identities(identity_key, item_id);
+
+                CREATE TABLE IF NOT EXISTS observations (
+                    source_id TEXT NOT NULL REFERENCES sources(source_id),
+                    item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+                    upstream_id TEXT,
+                    first_seen_at TEXT NOT NULL,
+                    last_seen_at TEXT NOT NULL,
+                    position INTEGER,
+                    PRIMARY KEY(source_id, item_id)
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_observations_item
+                    ON observations(item_id);
+
+                CREATE INDEX IF NOT EXISTS idx_observations_source_last_seen
+                    ON observations(source_id, last_seen_at DESC);
 
                 CREATE TABLE IF NOT EXISTS item_versions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -235,10 +281,10 @@ class Storage:
         elif row["version"] != SCHEMA_VERSION:
             raise RuntimeError(
                 f"Unsupported schema version {row['version']}; "
-                f"expected {SCHEMA_VERSION}"
+                f"expected {SCHEMA_VERSION}. Recreate the database to continue."
             )
 
-    def sync_sources(self, sources: Sequence[SourceConfig]) -> None:
+    def sync_sources(self, sources: Sequence[Source]) -> None:
         now = _iso_now()
         LOGGER.info("operation=source_sync count=%s", len(sources))
         with self.transaction():
@@ -246,38 +292,70 @@ class Storage:
                 self._connection.execute(
                     """
                     INSERT INTO sources(
-                        source_id, name, region, language, adapter, url,
-                        stream_kind, item_kind, enabled, schedule_seconds,
-                        config_json, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        source_id, provider_id, provider_name, provider_kind,
+                        channel_id, channel_label, channel_role, stream_kind,
+                        item_kind, entity_kind, item_variant, topics_json,
+                        language, market, adapter, url, enabled,
+                        interval_seconds, config_json, updated_at
+                    ) VALUES (
+                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                    )
                     ON CONFLICT(source_id) DO UPDATE SET
-                        name=excluded.name,
-                        region=excluded.region,
-                        language=excluded.language,
-                        adapter=excluded.adapter,
-                        url=excluded.url,
+                        provider_id=excluded.provider_id,
+                        provider_name=excluded.provider_name,
+                        provider_kind=excluded.provider_kind,
+                        channel_id=excluded.channel_id,
+                        channel_label=excluded.channel_label,
+                        channel_role=excluded.channel_role,
                         stream_kind=excluded.stream_kind,
                         item_kind=excluded.item_kind,
+                        entity_kind=excluded.entity_kind,
+                        item_variant=excluded.item_variant,
+                        topics_json=excluded.topics_json,
+                        language=excluded.language,
+                        market=excluded.market,
+                        adapter=excluded.adapter,
+                        url=excluded.url,
                         enabled=excluded.enabled,
-                        schedule_seconds=excluded.schedule_seconds,
+                        interval_seconds=excluded.interval_seconds,
                         config_json=excluded.config_json,
                         updated_at=excluded.updated_at
                     """,
                     (
                         source.id,
-                        source.name,
-                        source.region,
-                        source.language,
-                        source.adapter,
-                        source.url,
+                        source.provider_id,
+                        source.provider_name,
+                        source.provider_kind,
+                        source.channel_id,
+                        source.channel_label,
+                        source.channel_role,
                         source.stream_kind,
                         source.item_kind,
+                        source.entity_kind,
+                        source.item_variant,
+                        json.dumps(list(source.topics), ensure_ascii=False),
+                        source.language,
+                        source.market,
+                        source.endpoint.adapter,
+                        source.endpoint.url,
                         int(source.enabled),
-                        source.schedule_seconds,
+                        source.interval_seconds,
                         json.dumps(source.model_dump(mode="json"), ensure_ascii=False),
                         now,
                     ),
                 )
+                self._connection.execute(
+                    "DELETE FROM source_surfaces WHERE source_id = ?",
+                    (source.id,),
+                )
+                for surface in sorted(source.surfaces):
+                    self._connection.execute(
+                        """
+                        INSERT INTO source_surfaces(source_id, surface)
+                        VALUES (?, ?)
+                        """,
+                        (source.id, surface),
+                    )
                 self._connection.execute(
                     """
                     INSERT INTO stream_state(source_id, consecutive_failures)
@@ -286,21 +364,6 @@ class Storage:
                     """,
                     (source.id,),
                 )
-                cursor = self._connection.execute(
-                    """
-                    UPDATE items SET item_kind = ?
-                    WHERE source_id = ? AND item_kind != ?
-                    """,
-                    (source.item_kind, source.id, source.item_kind),
-                )
-                if cursor.rowcount > 0:
-                    LOGGER.info(
-                        "operation=item_kind_reconcile source_id=%s "
-                        "item_kind=%s count=%s",
-                        source.id,
-                        source.item_kind,
-                        cursor.rowcount,
-                    )
             if sources:
                 placeholders = ", ".join("?" for _ in sources)
                 cursor = self._connection.execute(
@@ -362,7 +425,7 @@ class Storage:
 
     def record_success(
         self,
-        source: SourceConfig,
+        source: Source,
         fetch_run_id: int,
         http_status: int | None,
         batch: ValidatedBatch,
@@ -468,7 +531,7 @@ class Storage:
 
     def record_history(
         self,
-        source: SourceConfig,
+        source: Source,
         fetch_run_id: int,
         batch: ValidatedBatch,
     ) -> IngestionSummary:
@@ -652,9 +715,12 @@ class Storage:
             ranked AS (
                 SELECT
                     s.source_id,
-                    src.name AS source_name,
+                    src.provider_name || ' — ' || src.channel_label
+                        AS source_name,
                     src.stream_kind,
-                    src.item_kind,
+                    i.item_kind,
+                    i.entity_kind,
+                    i.item_variant,
                     se.position,
                     iv.title,
                     i.id AS item_id,
@@ -685,22 +751,7 @@ class Storage:
             """,
             params,
         ).fetchall()
-        return [
-            HeadlineRow(
-                source_id=row["source_id"],
-                source_name=row["source_name"],
-                item_id=row["item_id"],
-                stream_kind=row["stream_kind"],
-                item_kind=row["item_kind"],
-                position=row["position"],
-                title=row["title"],
-                url=row["url"],
-                canonical_url=row["canonical_url"],
-                published_at=row["published_at"],
-                first_seen_at=row["first_seen_at"],
-            )
-            for row in rows
-        ]
+        return [_headline_row(row) for row in rows]
 
     def browse_headlines(
         self,
@@ -715,61 +766,57 @@ class Storage:
     ) -> list[HeadlineRow]:
         """Read one bounded page of durable item history.
 
-        Unlike :meth:`latest_snapshot_headlines`, this is not restricted to the
-        latest snapshot, and each item is projected with its most recently
-        observed stored title version. Ordered newest first.
+        Items are deduplicated at item level; each item is projected with a
+        representative observation (latest observation from a source exposing
+        the requested surface) and its most recently observed stored title
+        version. Ordered newest first.
         """
         if limit < 1:
             raise ValueError("limit must be positive")
         if offset < 0:
             raise ValueError("offset must not be negative")
+        _validate_browse_bounds(view, since, until)
         filters, params = _browse_filters(
             view=view,
             since=since,
             until=until,
             query=query,
+        )
+        representative, representative_params = _representative_filter(
+            view=view,
             source_id=source_id,
         )
+        params.extend(representative_params)
         params.extend((limit, offset))
         rows = self._connection.execute(
             f"""
             SELECT
-                i.source_id,
-                src.name AS source_name,
+                o.source_id,
+                src.provider_name || ' — ' || src.channel_label
+                    AS source_name,
                 i.id AS item_id,
                 src.stream_kind,
                 i.item_kind,
-                NULL AS position,
+                i.entity_kind,
+                i.item_variant,
+                o.position,
                 iv.title,
                 i.original_url AS url,
                 i.canonical_url,
                 i.published_at,
                 i.first_seen_at
             FROM items i
-            JOIN sources src ON src.source_id = i.source_id
             {_LATEST_ITEM_VERSION_JOIN_SQL}
+            JOIN observations o ON o.item_id = i.id
+            JOIN sources src ON src.source_id = o.source_id
             WHERE {" AND ".join(filters)}
+              AND {representative}
             ORDER BY i.first_seen_at DESC, i.id DESC
             LIMIT ? OFFSET ?
             """,
             params,
         ).fetchall()
-        return [
-            HeadlineRow(
-                source_id=row["source_id"],
-                source_name=row["source_name"],
-                item_id=row["item_id"],
-                stream_kind=row["stream_kind"],
-                item_kind=row["item_kind"],
-                position=row["position"],
-                title=row["title"],
-                url=row["url"],
-                canonical_url=row["canonical_url"],
-                published_at=row["published_at"],
-                first_seen_at=row["first_seen_at"],
-            )
-            for row in rows
-        ]
+        return [_headline_row(row) for row in rows]
 
     def count_browse_headlines(
         self,
@@ -781,19 +828,24 @@ class Storage:
         source_id: str | None = None,
     ) -> int:
         """Count durable items matching the same predicates as browsing."""
+        _validate_browse_bounds(view, since, until)
         filters, params = _browse_filters(
             view=view,
             since=since,
             until=until,
             query=query,
+        )
+        membership, membership_params = _membership_filter(
+            view=view,
             source_id=source_id,
         )
+        filters.append(membership)
+        params.extend(membership_params)
         version_join = _LATEST_ITEM_VERSION_JOIN_SQL if query else ""
         row = self._connection.execute(
             f"""
             SELECT COUNT(*)
             FROM items i
-            JOIN sources src ON src.source_id = i.source_id
             {version_join}
             WHERE {" AND ".join(filters)}
             """,
@@ -912,9 +964,9 @@ class Storage:
         """Hydrate committed change events into typed analysis inputs.
 
         Events are returned in the supplied order. A missing item, missing or
-        mismatched item version, unknown classification, or unreadable
-        timestamp fails clearly so a consumer never silently skips committed
-        evidence.
+        mismatched item version, missing observation, unknown classification,
+        or unreadable timestamp fails clearly so a consumer never silently
+        skips committed evidence.
         """
         if not events:
             return []
@@ -927,21 +979,25 @@ class Storage:
                 cl.source_id AS event_source_id,
                 cl.item_id,
                 cl.item_version_id,
-                i.source_id AS item_source_id,
                 iv.title,
                 i.original_url,
                 i.canonical_url,
                 i.published_at,
                 i.first_seen_at,
+                i.item_kind,
+                i.entity_kind,
+                i.item_variant,
                 src.language AS source_language,
                 src.enabled AS source_enabled,
                 src.stream_kind,
-                src.item_kind
+                o.source_id AS observation_source_id
             FROM change_log cl
             LEFT JOIN items i ON i.id = cl.item_id
             LEFT JOIN item_versions iv
               ON iv.id = cl.item_version_id AND iv.item_id = cl.item_id
-            LEFT JOIN sources src ON src.source_id = i.source_id
+            LEFT JOIN observations o
+              ON o.item_id = cl.item_id AND o.source_id = cl.source_id
+            LEFT JOIN sources src ON src.source_id = cl.source_id
             WHERE cl.seq IN ({placeholders})
             ORDER BY cl.seq
             """,
@@ -990,7 +1046,7 @@ class Storage:
 
     def _store_candidates(
         self,
-        source: SourceConfig,
+        source: Source,
         batch: ValidatedBatch,
         *,
         seen_at: str,
@@ -1001,6 +1057,9 @@ class Storage:
         stored: list[tuple[int, int]] = []
         for candidate in batch.candidates:
             item_id, item_is_new = self._upsert_item(source, candidate, seen_at)
+            observation_is_new = self._upsert_observation(
+                source, item_id, candidate, seen_at
+            )
             version_id, version_is_new = self._upsert_version(
                 item_id,
                 candidate.title.strip(),
@@ -1015,9 +1074,16 @@ class Storage:
                     version_id,
                     committed_at,
                 )
-            if version_is_new:
-                new_versions += 1
-                if not item_is_new:
+            else:
+                if observation_is_new:
+                    self._append_change(
+                        "item_observed",
+                        source.id,
+                        item_id,
+                        version_id,
+                        committed_at,
+                    )
+                if version_is_new:
                     self._append_change(
                         "headline_version_created",
                         source.id,
@@ -1025,54 +1091,93 @@ class Storage:
                         version_id,
                         committed_at,
                     )
+            if version_is_new:
+                new_versions += 1
             stored.append((item_id, version_id))
         return new_items, new_versions, tuple(stored)
 
     def _upsert_item(
         self,
-        source: SourceConfig,
+        source: Source,
         candidate: HeadlineCandidate,
         seen_at: str,
     ) -> tuple[int, bool]:
-        key = identity_key(candidate)
+        primary_key, url_key = identity_keys(
+            candidate,
+            provider_id=source.provider_id,
+        )
+        external_id = candidate.external_id.strip() if candidate.external_id else None
+        if not external_id:
+            external_id = None
         canonical_url = canonicalize_url(candidate.url)
         existing = self._connection.execute(
-            """
-            SELECT id, published_at, raw_published_at
-            FROM items
-            WHERE source_id = ? AND identity_key = ?
-            """,
-            (source.id, key),
+            "SELECT id FROM items WHERE identity_key = ?",
+            (primary_key,),
         ).fetchone()
+        if existing is None and external_id is not None:
+            existing = self._connection.execute(
+                """
+                SELECT id FROM items
+                WHERE identity_key = ? AND external_id IS NULL
+                """,
+                (url_key,),
+            ).fetchone()
+            if existing is not None:
+                self._connection.execute(
+                    """
+                    UPDATE items SET identity_key = ?, external_id = ?
+                    WHERE id = ?
+                    """,
+                    (primary_key, external_id, existing["id"]),
+                )
+        elif existing is None:
+            matches = self._connection.execute(
+                """
+                SELECT item_id FROM item_url_identities
+                WHERE identity_key = ?
+                ORDER BY item_id
+                LIMIT 2
+                """,
+                (url_key,),
+            ).fetchall()
+            if len(matches) == 1:
+                existing = self._connection.execute(
+                    "SELECT id FROM items WHERE id = ?",
+                    (matches[0]["item_id"],),
+                ).fetchone()
         published = _iso(candidate.published_at) if candidate.published_at else None
 
         if existing is None:
             cursor = self._connection.execute(
                 """
                 INSERT INTO items(
-                    source_id, identity_key, external_id, original_url,
-                    canonical_url, item_kind, published_at, raw_published_at,
-                    first_seen_at, last_seen_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    identity_key, external_id, original_url, canonical_url,
+                    item_kind, entity_kind, item_variant, published_at,
+                    raw_published_at, first_seen_at, last_seen_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    source.id,
-                    key,
-                    candidate.external_id,
+                    primary_key,
+                    external_id,
                     candidate.url.strip(),
                     canonical_url,
                     source.item_kind,
+                    source.entity_kind,
+                    source.item_variant,
                     published,
                     candidate.raw_published_at,
                     seen_at,
                     seen_at,
                 ),
             )
-            return _lastrowid(cursor), True
+            item_id = _lastrowid(cursor)
+            self._record_url_identity(item_id, url_key)
+            return item_id, True
 
         self._connection.execute(
             """
             UPDATE items SET
+                external_id = COALESCE(external_id, ?),
                 original_url = CASE
                     WHEN last_seen_at <= ? THEN ?
                     ELSE original_url
@@ -1088,6 +1193,7 @@ class Storage:
             WHERE id = ?
             """,
             (
+                external_id,
                 seen_at,
                 candidate.url.strip(),
                 seen_at,
@@ -1099,7 +1205,75 @@ class Storage:
                 existing["id"],
             ),
         )
-        return int(existing["id"]), False
+        item_id = int(existing["id"])
+        self._record_url_identity(item_id, url_key)
+        return item_id, False
+
+    def _record_url_identity(self, item_id: int, identity_key: str) -> None:
+        self._connection.execute(
+            """
+            INSERT INTO item_url_identities(item_id, identity_key)
+            VALUES (?, ?)
+            ON CONFLICT(item_id, identity_key) DO NOTHING
+            """,
+            (item_id, identity_key),
+        )
+
+    def _upsert_observation(
+        self,
+        source: Source,
+        item_id: int,
+        candidate: HeadlineCandidate,
+        seen_at: str,
+    ) -> bool:
+        existing = self._connection.execute(
+            """
+            SELECT 1 FROM observations
+            WHERE source_id = ? AND item_id = ?
+            """,
+            (source.id, item_id),
+        ).fetchone()
+        if existing is None:
+            self._connection.execute(
+                """
+                INSERT INTO observations(
+                    source_id, item_id, upstream_id, first_seen_at,
+                    last_seen_at, position
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    source.id,
+                    item_id,
+                    candidate.external_id,
+                    seen_at,
+                    seen_at,
+                    candidate.position,
+                ),
+            )
+            return True
+        self._connection.execute(
+            """
+            UPDATE observations SET
+                upstream_id = COALESCE(upstream_id, ?),
+                first_seen_at = MIN(first_seen_at, ?),
+                position = CASE
+                    WHEN last_seen_at <= ? THEN ?
+                    ELSE position
+                END,
+                last_seen_at = MAX(last_seen_at, ?)
+            WHERE source_id = ? AND item_id = ?
+            """,
+            (
+                candidate.external_id,
+                seen_at,
+                seen_at,
+                candidate.position,
+                seen_at,
+                source.id,
+                item_id,
+            ),
+        )
+        return False
 
     def _upsert_version(
         self,
@@ -1118,8 +1292,6 @@ class Storage:
             (item_id, title_hash),
         ).fetchone()
         version_id = int(existing["id"]) if existing is not None else None
-        if version_id is None:
-            version_id = self._find_legacy_version(item_id, title)
         if version_id is not None:
             self._connection.execute(
                 """
@@ -1142,18 +1314,6 @@ class Storage:
         )
         return _lastrowid(cursor), True
 
-    def _find_legacy_version(self, item_id: int, title: str) -> int | None:
-        """Match a version stored under the pre-normalization title hash."""
-        normalized = normalize_title_for_version(title)
-        rows = self._connection.execute(
-            "SELECT id, title FROM item_versions WHERE item_id = ?",
-            (item_id,),
-        ).fetchall()
-        for row in rows:
-            if normalize_title_for_version(row["title"]) == normalized:
-                return int(row["id"])
-        return None
-
     def _append_change(
         self,
         event_type: str,
@@ -1170,6 +1330,24 @@ class Storage:
             """,
             (event_type, source_id, item_id, version_id, now),
         )
+
+
+def _headline_row(row: sqlite3.Row) -> HeadlineRow:
+    return HeadlineRow(
+        source_id=row["source_id"],
+        source_name=row["source_name"],
+        item_id=row["item_id"],
+        stream_kind=row["stream_kind"],
+        item_kind=row["item_kind"],
+        entity_kind=row["entity_kind"],
+        item_variant=row["item_variant"],
+        position=row["position"],
+        title=row["title"],
+        url=row["url"],
+        canonical_url=row["canonical_url"],
+        published_at=row["published_at"],
+        first_seen_at=row["first_seen_at"],
+    )
 
 
 def _iso_now() -> str:
@@ -1194,14 +1372,10 @@ def _analysis_item(
 ) -> AnalysisItem:
     if row is None:
         raise ValueError(f"change event {event.seq} is missing from the change log")
-    if row["item_source_id"] is None:
+    if row["observation_source_id"] is None:
         raise ValueError(
-            f"change event {event.seq} references missing item {event.item_id}"
-        )
-    if row["item_source_id"] != row["event_source_id"]:
-        raise ValueError(
-            f"change event {event.seq} source {row['event_source_id']!r} does not "
-            f"own item {event.item_id}"
+            f"change event {event.seq} references missing observation "
+            f"{event.source_id!r} of item {event.item_id}"
         )
     version_id = row["item_version_id"]
     if version_id is None or row["title"] is None:
@@ -1225,6 +1399,24 @@ def _analysis_item(
         raise ValueError(
             f"item {event.item_id} has unsupported item kind {item_kind!r}"
         )
+    entity_kind: EntityKind | None = None
+    if row["entity_kind"] is not None:
+        raw_entity_kind = str(row["entity_kind"])
+        if not is_entity_kind(raw_entity_kind):
+            raise ValueError(
+                f"item {event.item_id} has unsupported entity kind "
+                f"{raw_entity_kind!r}"
+            )
+        entity_kind = raw_entity_kind
+    item_variant: ItemVariant | None = None
+    if row["item_variant"] is not None:
+        raw_item_variant = str(row["item_variant"])
+        if not is_item_variant(raw_item_variant):
+            raise ValueError(
+                f"item {event.item_id} has unsupported item variant "
+                f"{raw_item_variant!r}"
+            )
+        item_variant = raw_item_variant
     first_seen_at = _parse_dt(row["first_seen_at"])
     if first_seen_at is None:
         raise ValueError(f"item {event.item_id} has no first_seen_at")
@@ -1239,6 +1431,8 @@ def _analysis_item(
         source_enabled=bool(row["source_enabled"]),
         stream_kind=stream_kind,
         item_kind=item_kind,
+        entity_kind=entity_kind,
+        item_variant=item_variant,
         original_url=str(row["original_url"]),
         canonical_url=str(row["canonical_url"]),
         published_at=_parse_dt(row["published_at"]),
@@ -1250,14 +1444,11 @@ def _iso(value: datetime) -> str:
     return value.astimezone(UTC).isoformat(timespec="seconds")
 
 
-def _browse_filters(
-    *,
+def _validate_browse_bounds(
     view: BrowseView,
     since: datetime,
     until: datetime,
-    query: str | None,
-    source_id: str | None,
-) -> tuple[list[str], list[object]]:
+) -> None:
     if not is_browse_view(view):
         raise ValueError(f"unknown browse view: {view}")
     if since.tzinfo is None or until.tzinfo is None:
@@ -1265,33 +1456,84 @@ def _browse_filters(
     if since > until:
         raise ValueError("browse start must not be after its end")
 
+
+def _browse_filters(
+    *,
+    view: BrowseView,
+    since: datetime,
+    until: datetime,
+    query: str | None,
+) -> tuple[list[str], list[object]]:
     filters = [
         "i.first_seen_at >= ?",
         "i.first_seen_at <= ?",
-        "src.enabled = 1",
     ]
     params: list[object] = [_iso(since), _iso(until)]
-    if view != "all":
-        stream_kinds = sorted(DISCOVER_STREAM_KINDS)
-        item_kinds = sorted(DISCOVER_ITEM_KINDS)
-        stream_placeholders = ", ".join("?" for _ in stream_kinds)
-        item_placeholders = ", ".join("?" for _ in item_kinds)
-        discover_filter = (
-            f"(src.stream_kind IN ({stream_placeholders}) "
-            f"OR i.item_kind IN ({item_placeholders}))"
-        )
-        filters.append(
-            discover_filter if view == "discover" else f"NOT {discover_filter}"
-        )
-        params.extend(stream_kinds)
-        params.extend(item_kinds)
-    if source_id:
-        filters.append("i.source_id = ?")
-        params.append(source_id)
     if query:
         filters.append("iv.title LIKE ? ESCAPE '\\'")
         params.append(f"%{_escape_like(query)}%")
     return filters, params
+
+
+def _membership_filter(
+    *,
+    view: BrowseView,
+    source_id: str | None,
+) -> tuple[str, list[object]]:
+    """Item-level membership in one browse view, independent of enumeration."""
+    surface_join = ""
+    surface_filter = ""
+    params: list[object] = []
+    if view != "all":
+        surface_join = "JOIN source_surfaces ss ON ss.source_id = o.source_id"
+        surface_filter = "AND ss.surface = ?"
+        params.append(view)
+    source_filter = ""
+    if source_id:
+        source_filter = "AND o.source_id = ?"
+        params.append(source_id)
+    return (
+        "EXISTS ("
+        "SELECT 1 FROM observations o "
+        "JOIN sources s ON s.source_id = o.source_id "
+        f"{surface_join} "
+        "WHERE o.item_id = i.id AND s.enabled = 1 "
+        f"{surface_filter} "
+        f"{source_filter}"
+        ")",
+        params,
+    )
+
+
+def _representative_filter(
+    *,
+    view: BrowseView,
+    source_id: str | None,
+) -> tuple[str, list[object]]:
+    """Choose one deterministic observation row per item for display."""
+    surface_join = ""
+    surface_filter = ""
+    params: list[object] = []
+    if view != "all":
+        surface_join = "JOIN source_surfaces ss3 ON ss3.source_id = o3.source_id"
+        surface_filter = "AND ss3.surface = ?"
+        params.append(view)
+    source_filter = ""
+    if source_id:
+        source_filter = "AND o3.source_id = ?"
+        params.append(source_id)
+    return (
+        "o.source_id = ("
+        "SELECT o3.source_id FROM observations o3 "
+        "JOIN sources s3 ON s3.source_id = o3.source_id "
+        f"{surface_join} "
+        "WHERE o3.item_id = i.id AND s3.enabled = 1 "
+        f"{surface_filter} "
+        f"{source_filter} "
+        "ORDER BY o3.last_seen_at DESC, o3.source_id LIMIT 1"
+        ")",
+        params,
+    )
 
 
 def _escape_like(value: str) -> str:

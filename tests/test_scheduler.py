@@ -3,30 +3,28 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import cast
 
-from parallax.config import SchedulerConfig, SourceConfig
+from parallax.config import SchedulerConfig, Source
 from parallax.domain import IngestionBatchResult, StreamState
 from parallax.ingest import IngestionService
 from parallax.registry import SourceRegistry
 from parallax.scheduler import Scheduler
 from parallax.storage import Storage
+from source_factory import make_source
 
 
-def _source(source_id: str) -> SourceConfig:
-    return SourceConfig(
+def _source(source_id: str) -> Source:
+    return make_source(
         id=source_id,
-        name=source_id,
-        region="US",
-        language="en-US",
         adapter="fixture",
         url=f"https://example.test/{source_id}",
     )
 
 
 class _Registry:
-    def __init__(self, sources: list[SourceConfig]) -> None:
+    def __init__(self, sources: list[Source]) -> None:
         self.sources = sources
 
-    def enabled(self) -> list[SourceConfig]:
+    def enabled(self) -> list[Source]:
         return self.sources
 
 
@@ -40,9 +38,9 @@ class _Storage:
 
 class _Ingestion:
     def __init__(self) -> None:
-        self.calls: list[list[SourceConfig]] = []
+        self.calls: list[list[Source]] = []
 
-    def fetch_sources(self, sources: list[SourceConfig]) -> IngestionBatchResult:
+    def fetch_sources(self, sources: list[Source]) -> IngestionBatchResult:
         self.calls.append(sources)
         return IngestionBatchResult((), ())
 

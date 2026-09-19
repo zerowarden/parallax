@@ -1,28 +1,23 @@
 from __future__ import annotations
 
-import hashlib
 import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import pytest
 
-from parallax.config import SourceConfig
-from parallax.domain import HeadlineCandidate, ValidatedBatch
-from parallax.storage import Storage
+from parallax.config import Source
+from parallax.domain import BrowseView, HeadlineCandidate, ValidatedBatch
+from parallax.storage import SCHEMA_VERSION, Storage
+from source_factory import make_source
 
 OBSERVED_AT = datetime(2026, 9, 18, 12, 0, tzinfo=UTC)
 
 
-def _source() -> SourceConfig:
-    return SourceConfig(
-        id="fixture",
-        name="Fixture",
-        region="US",
-        language="en-US",
-        adapter="rss",
-        url="https://example.com/rss.xml",
-    )
+def _source(**overrides: Any):
+    overrides.setdefault("url", "https://example.com/rss.xml")
+    return make_source(**overrides)
 
 
 def test_change_log_has_source_and_created_at_index(tmp_path: Path) -> None:
@@ -63,6 +58,26 @@ def test_items_have_first_seen_index(tmp_path: Path) -> None:
 
     assert "idx_items_first_seen" in indexes
     assert columns == ["first_seen_at"]
+
+
+def test_initialize_records_schema_version_and_rejects_mismatch(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "parallax.db"
+    storage = Storage(database_path)
+    storage.initialize()
+    storage.close()
+
+    with sqlite3.connect(database_path) as connection:
+        recorded = connection.execute("SELECT version FROM schema_meta").fetchone()
+        connection.execute("UPDATE schema_meta SET version = ?", (SCHEMA_VERSION + 1,))
+
+    stale = Storage(database_path)
+    with pytest.raises(RuntimeError, match="Unsupported schema version"):
+        stale.initialize()
+    stale.close()
+
+    assert recorded == (SCHEMA_VERSION,)
 
 
 def test_storage_preserves_versions_and_is_idempotent(tmp_path: Path):
@@ -422,14 +437,7 @@ def test_sync_sources_disables_sources_removed_from_config(tmp_path: Path):
     storage = Storage(tmp_path / "parallax.db")
     storage.initialize()
     retained = _source()
-    removed = SourceConfig(
-        id="removed",
-        name="Removed",
-        region="US",
-        language="en-US",
-        adapter="rss",
-        url="https://example.com/removed.xml",
-    )
+    removed = _source(id="removed", url="https://example.com/removed.xml")
     storage.sync_sources([retained, removed])
     batch = ValidatedBatch(
         candidates=(
@@ -475,14 +483,8 @@ def test_latest_snapshot_headlines_only_returns_enabled_sources(tmp_path: Path):
     storage = Storage(tmp_path / "parallax.db")
     storage.initialize()
     enabled = _source()
-    disabled = SourceConfig(
-        id="disabled",
-        name="Disabled",
-        region="US",
-        language="en-US",
-        adapter="rss",
-        url="https://example.com/disabled.xml",
-        enabled=False,
+    disabled = _source(
+        id="disabled", url="https://example.com/disabled.xml", enabled=False
     )
     storage.sync_sources([enabled, disabled])
     for source in (enabled, disabled):
@@ -620,72 +622,6 @@ def test_formatting_only_title_change_reuses_version(tmp_path: Path) -> None:
     assert [event.event_type for event in changes] == ["item_created"]
 
 
-def test_legacy_title_hash_is_reused_without_new_version(tmp_path: Path) -> None:
-    storage = Storage(tmp_path / "parallax.db")
-    storage.initialize()
-    source = _source()
-    storage.sync_sources([source])
-
-    legacy_title = "Breaking  news"
-    run_one = storage.start_fetch_run(source.id)
-    storage.record_success(
-        source,
-        run_one,
-        200,
-        ValidatedBatch(
-            candidates=(
-                HeadlineCandidate(
-                    title=legacy_title,
-                    url="https://example.com/1",
-                    external_id="item-1",
-                    position=1,
-                ),
-            ),
-            rejected_count=0,
-        ),
-        None,
-        None,
-        datetime.now(UTC) + timedelta(minutes=10),
-        OBSERVED_AT,
-    )
-
-    with sqlite3.connect(tmp_path / "parallax.db") as connection:
-        connection.execute(
-            "UPDATE item_versions SET title_hash = ?",
-            (hashlib.sha256(legacy_title.encode("utf-8")).hexdigest(),),
-        )
-
-    run_two = storage.start_fetch_run(source.id)
-    summary = storage.record_success(
-        source,
-        run_two,
-        200,
-        ValidatedBatch(
-            candidates=(
-                HeadlineCandidate(
-                    title="Breaking\u00a0news",
-                    url="https://example.com/1",
-                    external_id="item-1",
-                    position=1,
-                ),
-            ),
-            rejected_count=0,
-        ),
-        None,
-        None,
-        datetime.now(UTC) + timedelta(minutes=10),
-        OBSERVED_AT,
-    )
-
-    rows = storage.latest_snapshot_headlines()
-    changes = storage.changes_after(0)
-    storage.close()
-
-    assert summary.new_version_count == 0
-    assert [row.title for row in rows] == [legacy_title]
-    assert [event.event_type for event in changes] == ["item_created"]
-
-
 def test_success_commit_uses_observation_time_for_seen_fields(tmp_path: Path) -> None:
     storage = Storage(tmp_path / "parallax.db")
     storage.initialize()
@@ -795,22 +731,14 @@ def test_failed_commit_rolls_back_and_preserves_prior_snapshot(tmp_path: Path) -
     assert state.last_success_at is not None
 
 
-def test_sync_sources_reconciles_stored_item_kind(tmp_path: Path) -> None:
+def test_canonical_items_collapse_across_provider_channels(tmp_path: Path) -> None:
     storage = Storage(tmp_path / "parallax.db")
     storage.initialize()
-    first = _source()
-    second = SourceConfig(
-        id="other",
-        name="Other",
-        region="US",
-        language="en-US",
-        adapter="rss",
-        url="https://example.com/other.xml",
-        item_kind="trend",
-    )
-    storage.sync_sources([first, second])
+    local = _source(id="channel-local", provider_id="rthk")
+    international = _source(id="channel-world", provider_id="rthk")
+    storage.sync_sources([local, international])
 
-    for source in (first, second):
+    def observe(source: Source, observed_at: datetime) -> None:
         run_id = storage.start_fetch_run(source.id)
         storage.record_success(
             source,
@@ -819,9 +747,9 @@ def test_sync_sources_reconciles_stored_item_kind(tmp_path: Path) -> None:
             ValidatedBatch(
                 candidates=(
                     HeadlineCandidate(
-                        title=f"{source.id} headline",
-                        url=f"https://example.com/{source.id}",
-                        external_id=source.id,
+                        title="Shared story",
+                        url="https://example.com/story/1",
+                        external_id="story-1",
                         position=1,
                     ),
                 ),
@@ -830,26 +758,230 @@ def test_sync_sources_reconciles_stored_item_kind(tmp_path: Path) -> None:
             None,
             None,
             datetime.now(UTC) + timedelta(minutes=10),
-            OBSERVED_AT,
+            observed_at,
+        )
+
+    observe(local, OBSERVED_AT)
+    observe(international, OBSERVED_AT + timedelta(minutes=5))
+
+    with sqlite3.connect(tmp_path / "parallax.db") as connection:
+        items = connection.execute("SELECT COUNT(*) FROM items").fetchone()
+        observations = connection.execute(
+            "SELECT COUNT(*) FROM observations"
+        ).fetchone()
+    events = [event.event_type for event in storage.changes_after(0)]
+    snapshots = storage.latest_snapshot_headlines()
+    storage.close()
+
+    assert items == (1,)
+    assert observations == (2,)
+    assert events == ["item_created", "item_observed"]
+    assert {row.source_id for row in snapshots} == {
+        "channel-local",
+        "channel-world",
+    }
+
+
+@pytest.mark.parametrize(
+    "external_ids",
+    [(None, "story-1"), ("story-1", None)],
+)
+def test_item_identity_is_stable_when_external_id_appears_or_disappears(
+    tmp_path: Path,
+    external_ids: tuple[str | None, str | None],
+) -> None:
+    storage = Storage(tmp_path / "parallax.db")
+    storage.initialize()
+    source = _source()
+    storage.sync_sources([source])
+
+    for index, external_id in enumerate(external_ids):
+        run_id = storage.start_fetch_run(source.id)
+        storage.record_success(
+            source,
+            run_id,
+            200,
+            ValidatedBatch(
+                candidates=(
+                    HeadlineCandidate(
+                        title="Shared story",
+                        url="https://example.com/story/1",
+                        external_id=external_id,
+                        position=1,
+                    ),
+                ),
+                rejected_count=0,
+            ),
+            None,
+            None,
+            datetime.now(UTC) + timedelta(minutes=10),
+            OBSERVED_AT + timedelta(minutes=index),
         )
 
     with sqlite3.connect(tmp_path / "parallax.db") as connection:
-        before = connection.execute(
-            "SELECT id, identity_key, canonical_url FROM items ORDER BY id"
+        items = connection.execute(
+            "SELECT identity_key, external_id FROM items"
         ).fetchall()
-
-    storage.sync_sources([first.model_copy(update={"item_kind": "flash"}), second])
-
-    with sqlite3.connect(tmp_path / "parallax.db") as connection:
-        after = connection.execute(
-            "SELECT id, identity_key, canonical_url FROM items ORDER BY id"
-        ).fetchall()
-        kinds = dict(connection.execute("SELECT source_id, item_kind FROM items"))
-        versions = connection.execute("SELECT COUNT(*) FROM item_versions").fetchone()
-        snapshots = connection.execute("SELECT COUNT(*) FROM snapshots").fetchone()
+        observations = connection.execute(
+            "SELECT COUNT(*) FROM observations"
+        ).fetchone()
     storage.close()
 
-    assert kinds == {"fixture": "flash", "other": "trend"}
-    assert after == before
-    assert versions == (2,)
-    assert snapshots == (2,)
+    assert items == [("external:fixture:story-1", "story-1")]
+    assert observations == (1,)
+
+
+def test_distinct_external_ids_with_same_url_remain_distinct(tmp_path: Path) -> None:
+    storage = Storage(tmp_path / "parallax.db")
+    storage.initialize()
+    source = _source()
+    storage.sync_sources([source])
+
+    for index, external_id in enumerate(("story-1", "story-2")):
+        run_id = storage.start_fetch_run(source.id)
+        storage.record_success(
+            source,
+            run_id,
+            200,
+            ValidatedBatch(
+                candidates=(
+                    HeadlineCandidate(
+                        title=f"Story {index}",
+                        url="https://example.com/story",
+                        external_id=external_id,
+                    ),
+                ),
+                rejected_count=0,
+            ),
+            None,
+            None,
+            datetime.now(UTC) + timedelta(minutes=10),
+            OBSERVED_AT + timedelta(minutes=index),
+        )
+
+    with sqlite3.connect(tmp_path / "parallax.db") as connection:
+        identities = connection.execute(
+            "SELECT identity_key FROM items ORDER BY identity_key"
+        ).fetchall()
+    storage.close()
+
+    assert identities == [
+        ("external:fixture:story-1",),
+        ("external:fixture:story-2",),
+    ]
+
+
+def test_browse_views_use_explicit_surfaces(tmp_path: Path) -> None:
+    storage = Storage(tmp_path / "parallax.db")
+    storage.initialize()
+    news = _source(
+        id="news-source",
+        provider_id="shared",
+        surfaces=("news",),
+    )
+    discover = _source(
+        id="discover-source",
+        provider_id="shared",
+        surfaces=("discover",),
+    )
+    storage.sync_sources([news, discover])
+
+    for source, observed_at in (
+        (news, OBSERVED_AT),
+        (discover, OBSERVED_AT + timedelta(minutes=5)),
+    ):
+        run_id = storage.start_fetch_run(source.id)
+        storage.record_success(
+            source,
+            run_id,
+            200,
+            ValidatedBatch(
+                candidates=(
+                    HeadlineCandidate(
+                        title="Shared story",
+                        url="https://example.com/shared/1",
+                        external_id="shared-1",
+                        position=1,
+                    ),
+                ),
+                rejected_count=0,
+            ),
+            None,
+            None,
+            datetime.now(UTC) + timedelta(minutes=10),
+            observed_at,
+        )
+
+    since = OBSERVED_AT - timedelta(days=1)
+    until = OBSERVED_AT + timedelta(days=1)
+
+    def browse(view: BrowseView) -> list[str]:
+        rows = storage.browse_headlines(
+            view=view, since=since, until=until, limit=10, offset=0
+        )
+        assert storage.count_browse_headlines(
+            view=view, since=since, until=until
+        ) == len(rows)
+        return [row.source_id for row in rows]
+
+    assert browse("all") == ["discover-source"]
+    assert browse("news") == ["news-source"]
+    assert browse("discover") == ["discover-source"]
+    storage.close()
+
+
+def test_browse_membership_is_per_observation(tmp_path: Path) -> None:
+    storage = Storage(tmp_path / "parallax.db")
+    storage.initialize()
+    news = _source(id="news-source", surfaces=("news",))
+    discover = _source(id="discover-source", surfaces=("discover",))
+    storage.sync_sources([news, discover])
+
+    def observe(source: Source, url: str, observed_at: datetime) -> None:
+        run_id = storage.start_fetch_run(source.id)
+        storage.record_success(
+            source,
+            run_id,
+            200,
+            ValidatedBatch(
+                candidates=(
+                    HeadlineCandidate(
+                        title="Headline",
+                        url=url,
+                        position=1,
+                    ),
+                ),
+                rejected_count=0,
+            ),
+            None,
+            None,
+            datetime.now(UTC) + timedelta(minutes=10),
+            observed_at,
+        )
+
+    observe(news, "https://example.com/news/1", OBSERVED_AT)
+    observe(discover, "https://example.com/discover/1", OBSERVED_AT)
+    observe(discover, "https://example.com/news/1", OBSERVED_AT + timedelta(minutes=1))
+
+    since = OBSERVED_AT - timedelta(days=1)
+    until = OBSERVED_AT + timedelta(days=1)
+    news_rows = storage.browse_headlines(
+        view="news", since=since, until=until, limit=10, offset=0
+    )
+    discover_rows = storage.browse_headlines(
+        view="discover", since=since, until=until, limit=10, offset=0
+    )
+    all_rows = storage.browse_headlines(
+        view="all", since=since, until=until, limit=10, offset=0
+    )
+    storage.close()
+
+    assert [row.url for row in news_rows] == ["https://example.com/news/1"]
+    assert {row.url for row in discover_rows} == {
+        "https://example.com/discover/1",
+        "https://example.com/news/1",
+    }
+    assert len(all_rows) == 2
+    assert {
+        row.source_id for row in all_rows if row.url == "https://example.com/news/1"
+    } == {"discover-source"}

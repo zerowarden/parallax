@@ -1,26 +1,22 @@
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime
+from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
 
 from parallax.cli import app
-from parallax.config import SourceConfig
+from parallax.config import Source
 from parallax.domain import IngestionBatchResult, IngestionFailure
 from parallax.storage import HeadlineRow
+from source_factory import make_source
 
 
-def _source() -> SourceConfig:
-    return SourceConfig(
-        id="fixture",
-        name="Fixture",
-        region="US",
-        language="en-US",
-        adapter="fixture",
-        url="https://example.test/fixture",
-    )
+def _source() -> Source:
+    return make_source(adapter="fixture", url="https://example.test/fixture")
 
 
 def _headline_row(
@@ -40,6 +36,8 @@ def _headline_row(
         item_id=item_id,
         stream_kind="latest",
         item_kind=item_kind,
+        entity_kind=None,
+        item_variant=None,
         position=position,
         title=title,
         url=url,
@@ -50,10 +48,10 @@ def _headline_row(
 
 
 class _Registry:
-    def enabled(self) -> list[SourceConfig]:
+    def enabled(self) -> list[Source]:
         return [_source()]
 
-    def get(self, source_id: str) -> SourceConfig:
+    def get(self, source_id: str) -> Source:
         return _source()
 
 
@@ -89,7 +87,7 @@ class _Ingestion:
         self.since = None
 
     def fetch_sources(
-        self, sources: list[SourceConfig], since: object = None
+        self, sources: list[Source], since: object = None
     ) -> IngestionBatchResult:
         self.since = since
         return self.result
@@ -333,3 +331,117 @@ def test_web_quiets_werkzeug_access_logs(monkeypatch: pytest.MonkeyPatch) -> Non
 
     assert result.exit_code == 0
     assert werkzeug_logger.level == logging.WARNING
+
+
+def _write_catalog(base: Path, *, adapter: str = "rss", options: str = "") -> Path:
+    (base / "sources").mkdir(parents=True, exist_ok=True)
+    (base / "config.toml").write_text("schema_version = 0\n")
+    (base / "sources" / "cn.toml").write_text(f"""
+[[sources]]
+id = "fixture"
+provider_id = "fixture"
+provider_name = "Fixture Provider"
+provider_kind = "publisher"
+channel_id = "main"
+channel_label = "Main"
+channel_role = "aggregate"
+stream_kind = "latest"
+item_kind = "article"
+topics = ["business"]
+surfaces = ["news"]
+language = "en-GB"
+market = "GB"
+interval_seconds = 1800
+max_items = 100
+[sources.endpoint]
+adapter = "{adapter}"
+url = "https://example.test/feed.xml"
+{options}
+""")
+    return base / "config.toml"
+
+
+def test_config_lint_accepts_a_valid_catalog(tmp_path: Path) -> None:
+    config = _write_catalog(tmp_path)
+
+    result = CliRunner().invoke(app, ["config", "lint", "--config", str(config)])
+
+    assert result.exit_code == 0
+    assert "Catalog OK" in result.output
+
+
+def test_config_lint_rejects_unknown_adapters(tmp_path: Path) -> None:
+    config = _write_catalog(tmp_path, adapter="missing")
+
+    result = CliRunner().invoke(app, ["config", "lint", "--config", str(config)])
+
+    assert result.exit_code == 1
+    assert "Unknown adapter" in result.output
+
+
+def test_config_lint_rejects_invalid_adapter_options(tmp_path: Path) -> None:
+    config = _write_catalog(
+        tmp_path,
+        options="[sources.endpoint.options]\nmax_item = 10",
+    )
+
+    result = CliRunner().invoke(app, ["config", "lint", "--config", str(config)])
+
+    assert result.exit_code == 1
+    assert "Unknown options" in result.output
+
+
+def test_config_lint_rejects_malformed_catalogs(tmp_path: Path) -> None:
+    config = _write_catalog(tmp_path)
+    config.write_text(
+        config.read_text().replace("schema_version = 0", "schema_version = 1")
+    )
+
+    result = CliRunner().invoke(app, ["config", "lint", "--config", str(config)])
+
+    assert result.exit_code == 1
+    assert "schema_version" in result.output
+
+
+def test_config_resolve_outputs_complete_json(tmp_path: Path) -> None:
+    config = _write_catalog(tmp_path)
+
+    result = CliRunner().invoke(app, ["config", "resolve", "--config", str(config)])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["sources"][0]["id"] == "fixture"
+    assert payload["sources"][0]["provider_name"] == "Fixture Provider"
+    assert payload["sources"][0]["interval_seconds"] == 1800
+    assert payload["sources"][0]["max_items"] == 100
+    assert payload["app"]["database_path"] == str(
+        (tmp_path / "data/parallax.db").resolve()
+    )
+    assert "defined_in" not in payload["sources"][0]
+
+
+def test_config_source_shows_resolved_definition(tmp_path: Path) -> None:
+    config = _write_catalog(tmp_path)
+
+    result = CliRunner().invoke(
+        app, ["config", "source", "fixture", "--config", str(config)]
+    )
+
+    assert result.exit_code == 0
+    assert "Fixture Provider" in result.output
+    assert "en-GB" in result.output
+    assert "GB" in result.output
+    assert "cn.toml" in result.output
+    assert "1800" in result.output
+    assert "100" in result.output
+
+
+def test_config_source_rejects_unknown_ids(tmp_path: Path) -> None:
+    config = _write_catalog(tmp_path)
+
+    result = CliRunner().invoke(
+        app, ["config", "source", "missing", "--config", str(config)]
+    )
+
+    assert result.exit_code == 1
+    assert "Unknown source" in result.output

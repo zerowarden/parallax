@@ -6,7 +6,7 @@ from typing import Any
 from parallax.adapters.common.http import json_request
 from parallax.adapters.common.options import option_int
 from parallax.adapters.common.parsing import decode_json_list, text
-from parallax.config import SourceConfig
+from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
@@ -29,10 +29,10 @@ class NowNewsAdapter:
     within a bounded page count and keep only items inside the window.
     """
 
-    def build_request(self, source: SourceConfig) -> RequestSpec:
+    def build_request(self, source: Source) -> RequestSpec:
         return _page_request(source, page=1)
 
-    def parse(self, source: SourceConfig, response: HttpResponse) -> ParsedBatch:
+    def parse(self, source: Source, response: HttpResponse) -> ParsedBatch:
         batch = _parse_entries(source, (response,), since=None)
         if not batch.candidates:
             raise ValueError("Now News response contains no articles")
@@ -40,7 +40,7 @@ class NowNewsAdapter:
 
     def build_history_requests(
         self,
-        source: SourceConfig,
+        source: Source,
         since: datetime,
     ) -> tuple[RequestSpec, ...]:
         pages = option_int(source, "history_max_pages", DEFAULT_HISTORY_PAGES)
@@ -48,15 +48,15 @@ class NowNewsAdapter:
 
     def parse_history_responses(
         self,
-        source: SourceConfig,
+        source: Source,
         responses: tuple[HttpResponse, ...],
         since: datetime,
     ) -> ParsedBatch:
         return _parse_entries(source, responses, since=since)
 
 
-def _page_request(source: SourceConfig, *, page: int) -> RequestSpec:
-    size = option_int(source, "max_items", 30)
+def _page_request(source: Source, *, page: int) -> RequestSpec:
+    size = source.max_items
     return json_request(
         source,
         params={"pageSize": str(size), "pageNo": str(page)},
@@ -64,11 +64,11 @@ def _page_request(source: SourceConfig, *, page: int) -> RequestSpec:
 
 
 def _parse_entries(
-    source: SourceConfig,
+    source: Source,
     responses: tuple[HttpResponse, ...],
     since: datetime | None,
 ) -> ParsedBatch:
-    max_items = option_int(source, "max_items", 30)
+    max_items = source.max_items
     candidates: list[HeadlineCandidate] = []
     seen: set[str] = set()
     for response in responses:
@@ -86,7 +86,7 @@ def _parse_entries(
             if since is not None and (published is None or published < since):
                 continue
             seen.add(news_id)
-            metrics: dict[str, Any] = {"stream_kind": source.stream_kind}
+            metrics: dict[str, Any] = {}
             publisher = text(entry.get("newsSource"))
             if publisher:
                 metrics["source"] = publisher

@@ -3,8 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from xml.etree import ElementTree
 
-from parallax.adapters.common.options import option_int
-from parallax.config import SourceConfig
+from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
@@ -15,10 +14,10 @@ from parallax.parsing import parse_timestamp
 
 
 class RssAdapter:
-    def build_request(self, source: SourceConfig) -> RequestSpec:
+    def build_request(self, source: Source) -> RequestSpec:
         return RequestSpec(
             method="GET",
-            url=source.url,
+            url=source.endpoint.url,
             headers={
                 "Accept": (
                     "application/rss+xml, application/atom+xml, "
@@ -27,13 +26,13 @@ class RssAdapter:
             },
         )
 
-    def parse(self, source: SourceConfig, response: HttpResponse) -> ParsedBatch:
+    def parse(self, source: Source, response: HttpResponse) -> ParsedBatch:
         return parse_feed_batch(response.content, source)
 
 
 def parse_feed_batch(
     content: bytes,
-    source: SourceConfig,
+    source: Source,
     *,
     label: str = "XML feed",
     transform: Callable[[HeadlineCandidate], HeadlineCandidate] | None = None,
@@ -48,13 +47,13 @@ def parse_feed_batch(
     candidates = parse_feed_candidates(content, source, label=label)
     if transform is not None:
         candidates = [transform(candidate) for candidate in candidates]
-    max_items = option_int(source, "max_items", 100)
+    max_items = source.max_items
     return ParsedBatch(candidates=tuple(candidates[:max_items]))
 
 
 def parse_feed_candidates(
     content: bytes,
-    source: SourceConfig,
+    source: Source,
     *,
     label: str = "XML feed",
 ) -> list[HeadlineCandidate]:
@@ -78,7 +77,7 @@ def parse_feed_candidates(
 
 def _parse_rss2(
     root: ElementTree.Element,
-    source: SourceConfig,
+    source: Source,
 ) -> list[HeadlineCandidate]:
     channel = _first_child(root, "channel")
     if channel is None:
@@ -100,7 +99,6 @@ def _parse_rss2(
                 published_at=published,
                 raw_published_at=raw_published or None,
                 position=position,
-                metrics={"stream_kind": source.stream_kind},
             )
         )
     return results
@@ -108,7 +106,7 @@ def _parse_rss2(
 
 def _parse_atom(
     root: ElementTree.Element,
-    source: SourceConfig,
+    source: Source,
 ) -> list[HeadlineCandidate]:
     results: list[HeadlineCandidate] = []
     for position, entry in enumerate(_children(root, "entry"), start=1):
@@ -118,7 +116,7 @@ def _parse_atom(
         raw_updated = _child_text(entry, "updated")
         published = parse_timestamp(raw_published)
         link = _atom_link(entry)
-        metrics: dict[str, object] = {"stream_kind": source.stream_kind}
+        metrics: dict[str, object] = {}
         if raw_updated:
             metrics["updated_at"] = raw_updated
 

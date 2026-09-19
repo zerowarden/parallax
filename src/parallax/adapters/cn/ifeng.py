@@ -5,14 +5,13 @@ import re
 from urllib.parse import urlsplit
 
 from parallax.adapters.common.http import html_request
-from parallax.adapters.common.options import option_int
 from parallax.adapters.common.parsing import (
     decode_html,
     parse_china_timestamp,
     require_list,
     text,
 )
-from parallax.config import SourceConfig
+from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
@@ -32,10 +31,10 @@ class IfengHotAdapter:
     and is parsed as China wall time when present.
     """
 
-    def build_request(self, source: SourceConfig) -> RequestSpec:
+    def build_request(self, source: Source) -> RequestSpec:
         return html_request(source)
 
-    def parse(self, source: SourceConfig, response: HttpResponse) -> ParsedBatch:
+    def parse(self, source: Source, response: HttpResponse) -> ParsedBatch:
         html = decode_html(response.content, label="Ifeng")
         match = EMBEDDED_DATA.search(html)
         if match is None:
@@ -49,7 +48,7 @@ class IfengHotAdapter:
             "Ifeng allData does not contain a hotNews1 list",
         )
 
-        max_items = option_int(source, "max_items", 30)
+        max_items = source.max_items
         candidates: list[HeadlineCandidate] = []
         for entry in entries:
             if not isinstance(entry, dict):
@@ -65,7 +64,6 @@ class IfengHotAdapter:
                     published_at=parse_china_timestamp(raw_published),
                     raw_published_at=raw_published or None,
                     position=len(candidates) + 1,
-                    metrics={"stream_kind": source.stream_kind},
                 )
             )
             if len(candidates) >= max_items:

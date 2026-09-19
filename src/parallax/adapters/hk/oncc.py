@@ -7,13 +7,12 @@ from urllib.parse import urljoin
 from selectolax.parser import HTMLParser
 
 from parallax.adapters.common.http import html_request
-from parallax.adapters.common.options import option_int
 from parallax.adapters.common.parsing import (
     CHINA_STANDARD_TIME,
     decode_html,
     text,
 )
-from parallax.config import SourceConfig
+from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
@@ -33,13 +32,13 @@ class OnccNewsAdapter:
     the anchor href supplies the canonical article URL.
     """
 
-    def build_request(self, source: SourceConfig) -> RequestSpec:
+    def build_request(self, source: Source) -> RequestSpec:
         return html_request(source)
 
-    def parse(self, source: SourceConfig, response: HttpResponse) -> ParsedBatch:
+    def parse(self, source: Source, response: HttpResponse) -> ParsedBatch:
         tree = HTMLParser(decode_html(response.content, label="On.cc"))
 
-        max_items = option_int(source, "max_items", 50)
+        max_items = source.max_items
         candidates: list[HeadlineCandidate] = []
         seen: set[str] = set()
         for card in tree.css("div.focusItem[pubdate]"):
@@ -52,7 +51,7 @@ class OnccNewsAdapter:
             seen.add(href)
 
             raw_published = text(card.attributes.get("pubdate"))
-            metrics: dict[str, Any] = {"stream_kind": source.stream_kind}
+            metrics: dict[str, Any] = {}
             district = text(card.attributes.get("district"))
             if district:
                 metrics["district"] = district

@@ -1,0 +1,940 @@
+[[sources]]
+id = "thepaper-hot"
+provider_id = "thepaper"
+channel_id = "hot"
+channel_label = "热榜"
+channel_role = "view"
+stream_kind = "hot"
+item_kind = "article"
+topics = []
+surfaces = ["discover"]
+language = "zh-CN"
+market = "CN"
+interval_seconds = 1800
+max_items = 30
+enabled = true
+provider_name = "澎湃新闻"
+provider_kind = "publisher"
+[sources.endpoint]
+adapter = "thepaper_hot"
+url = "https://cache.thepaper.cn/contentapi/wwwIndex/rightSidebar"
+
+[[sources]]
+id = "v2ex-share"
+provider_id = "v2ex"
+channel_id = "share"
+channel_label = "最新分享"
+channel_role = "view"
+stream_kind = "latest"
+item_kind = "post"
+topics = ["technology"]
+surfaces = ["news"]
+language = "zh-CN"
+market = "CN"
+interval_seconds = 1800
+max_items = 30
+enabled = true
+provider_name = "V2EX"
+provider_kind = "community"
+[sources.endpoint]
+adapter = "v2ex_share"
+url = "https://www.v2ex.com"
+
+[[sources]]
+id = "zhihu"
+provider_id = "zhihu"
+channel_id = "hot"
+channel_label = "热榜"
+channel_role = "view"
+stream_kind = "hot"
+item_kind = "entity"
+entity_kind = "topic"
+topics = []
+surfaces = ["discover"]
+language = "zh-CN"
+market = "CN"
+interval_seconds = 1800
+max_items = 20
+enabled = true
+provider_name = "知乎"
+provider_kind = "platform"
+[sources.endpoint]
+adapter = "zhihu_hot"
+url = "https://www.zhihu.com/api/v3/feed/topstory/hot-list-web?limit=20&desktop=true"
+
+[[sources]]
+id = "weibo"
+provider_id = "weibo"
+channel_id = "hot-search"
+channel_label = "实时热搜"
+channel_role = "view"
+stream_kind = "ranking"
+item_kind = "entity"
+entity_kind = "topic"
+topics = []
+surfaces = ["discover"]
+language = "zh-CN"
+market = "CN"
+interval_seconds = 1800
+max_items = 30
+enabled = true
+provider_name = "微博"
+provider_kind = "platform"
+[sources.endpoint]
+adapter = "weibo_hot"
+url = "https://weibo.com/ajax/side/hotSearch"
+
+[[sources]]
+id = "zaobao"
+provider_id = "zaochenbao"
+channel_id = "realtime"
+channel_label = "即時"
+channel_role = "section"
+stream_kind = "latest"
+item_kind = "article"
+topics = []
+surfaces = ["news"]
+language = "zh-CN"
+market = "CN"
+interval_seconds = 1800
+max_items = 30
+enabled = true
+provider_name = "早晨报"
+provider_kind = "publisher"
+[sources.endpoint]
+adapter = "zaobao_realtime"
+url = "https://www.zaochenbao.com/realtime/"
+
+[[sources]]
+id = "coolapk"
+provider_id = "coolapk"
+channel_id = "today-hot"
+channel_label = "今日最热"
+channel_role = "view"
+stream_kind = "hot"
+item_kind = "post"
+topics = ["technology"]
+surfaces = ["discover"]
+language = "zh-CN"
+market = "CN"
+interval_seconds = 1800
+max_items = 30
+enabled = true
+provider_name = "酷安"
+provider_kind = "platform"
+[sources.endpoint]
+adapter = "coolapk_hot"
+url = "https://api.coolapk.com/v6/page/dataList?url=%2Ffeed%2FstatList%3FcacheExpires%3D300%26statType%3Dday%26sortField%3Ddetailnum%26title%3D%E4%BB%8A%E6%97%A5%E7%83%AD%E9%97%A8&title=%E4%BB%8A%E6%97%A5%E7%83%AD%E9%97%A8&subTitle=&page=1"
+
+[[sources]]
+id = "mktnews-flash"
+provider_id = "mktnews"
+channel_id = "flash"
+channel_label = "快讯"
+channel_role = "section"
+stream_kind = "latest"
+item_kind = "article"
+item_variant = "flash"
+topics = ["business", "markets"]
+surfaces = ["news"]
+language = "zh-CN"
+market = "CN"
+interval_seconds = 1800
+max_items = 30
+enabled = true
+provider_name = "MKTNews"
+provider_kind = "publisher"
+[sources.endpoint]
+adapter = "mktnews_flash"
+url = "https://api.mktnews.net/api/flash?type=0&limit=50"
+
+[[sources]]
+id = "wallstreetcn-quick"
+provider_id = "wallstreetcn"
+channel_id = "quick"
+channel_label = "快讯"
+channel_role = "section"
+stream_kind = "latest"
+item_kind = "article"
+item_variant = "flash"
+topics = ["business", "markets"]
+surfaces = ["news"]
+language = "zh-CN"
+market = "CN"
+interval_seconds = 1800
+max_items = 30
+enabled = true
+provider_name = "华尔街见闻"
+provider_kind = "publisher"
+[sources.endpoint]
+adapter = "wallstreetcn_quick"
+url = "https://api-one.wallstcn.com/apiv1/content/lives"
+
+[[sources]]
+id = "wallstreetcn-news"
+provider_id = "wallstreetcn"
+channel_id = "news"
+channel_label = "最新"
+channel_role = "section"
+stream_kind = "latest"
+item_kind = "article"
+topics = ["business", "markets"]
+surfaces = ["news"]
+language = "zh-CN"
+market = "CN"
+interval_seconds = 1800
+max_items = 30
+enabled = true
+provider_name = "华尔街见闻"
+provider_kind = "publisher"
+[sources.endpoint]
+adapter = "wallstreetcn_news"
+url = "https://api-one.wallstcn.com/apiv1/content/information-flow"
+
+[[sources]]
+id = "wallstreetcn-hot"
+provider_id = "wallstreetcn"
+channel_id = "hot"
+channel_label = "最热"
+channel_role = "view"
+stream_kind = "hot"
+item_kind = "article"
+topics = ["business", "markets"]
+surfaces = ["discover"]
+language = "zh-CN"
+market = "CN"
+interval_seconds = 1800
+max_items = 30
+enabled = true
+provider_name = "华尔街见闻"
+provider_kind = "publisher"
+[sources.endpoint]
+adapter = "wallstreetcn_hot"
+url = "https://api-one.wallstcn.com/apiv1/content/articles/hot"
+
+[[sources]]
+id = "36kr-quick"
+provider_id = "36kr"
+channel_id = "quick"
+channel_label = "快讯"
+channel_role = "section"
+stream_kind = "latest"
+item_kind = "article"
+item_variant = "flash"
+topics = ["business", "technology"]
+surfaces = ["news"]
+language = "zh-CN"
+market = "CN"
+interval_seconds = 1800
+max_items = 30
+enabled = false
+provider_name = "36氪"
+provider_kind = "publisher"
+[sources.endpoint]
+adapter = "kr36_quick"
+url = "https://www.36kr.com/newsflashes"
+
+[[sources]]
+id = "douyin"
+provider_id = "douyin"
+channel_id = "hot"
+channel_label = "热榜"
+channel_role = "view"
+stream_kind = "hot"
+item_kind = "entity"
+entity_kind = "topic"
+topics = []
+surfaces = ["discover"]
+language = "zh-CN"
+market = "CN"
+interval_seconds = 1800
+max_items = 30
+enabled = true
+provider_name = "抖音"
+provider_kind = "platform"
+[sources.endpoint]
+adapter = "douyin_hot"
+url = "https://www.douyin.com/"
+
+[[sources]]
+id = "hupu"
+provider_id = "hupu"
+channel_id = "hot"
+channel_label = "主干道热帖"
+channel_role = "view"
+stream_kind = "hot"
+item_kind = "post"
+topics = ["sports"]
+surfaces = ["discover"]
+language = "zh-CN"
+market = "CN"
+interval_seconds = 1800
+max_items = 30
+enabled = true
+provider_name = "虎扑"
+provider_kind = "community"
+[sources.endpoint]
+adapter = "hupu_hot"
+url = "https://bbs.hupu.com/topic-daily-hot"
+
+[[sources]]
+id = "dongqiudi"
+provider_id = "dongqiudi"
+channel_id = "headlines"
+channel_label = "头条"
+channel_role = "section"
+stream_kind = "latest"
+item_kind = "article"
+topics = ["sports"]
+surfaces = ["news"]
+language = "zh-CN"
+market = "CN"
+interval_seconds = 1800
+max_items = 30
+enabled = true
+provider_name = "懂球帝"
+provider_kind = "publisher"
+[sources.endpoint]
+adapter = "dongqiudi_news"
+url = "https://api.dongqiudi.com/app/tabs/web/1.json"
+
+[[sources]]
+id = "tieba"
+provider_id = "tieba"
+channel_id = "hot"
+channel_label = "热议"
+channel_role = "view"
+stream_kind = "hot"
+item_kind = "post"
+topics = []
+surfaces = ["discover"]
+language = "zh-CN"
+market = "CN"
+interval_seconds = 1800
+max_items = 30
+enabled = true
+provider_name = "百度贴吧"
+provider_kind = "community"
+[sources.endpoint]
+adapter = "tieba_hot"
+url = "https://tieba.baidu.com/hottopic/browse/topicList"
+
+[[sources]]
+id = "toutiao"
+provider_id = "toutiao"
+channel_id = "hot"
+channel_label = "热榜"
+channel_role = "view"
+stream_kind = "hot"
+item_kind = "entity"
+entity_kind = "topic"
+topics = []
+surfaces = ["discover"]
+language = "zh-CN"
+market = "CN"
+interval_seconds = 1800
+max_items = 30
+enabled = true
+provider_name = "今日头条"
+provider_kind = "platform"
+[sources.endpoint]
+adapter = "toutiao_hot"
+url = "https://www.toutiao.com/hot-event/hot-board/?origin=toutiao_pc"
+
+[[sources]]
+id = "ithome"
+provider_id = "ithome"
+channel_id = "news"
+channel_label = "资讯"
+channel_role = "section"
+stream_kind = "latest"
+item_kind = "article"
+topics = ["technology"]
+surfaces = ["news"]
+language = "zh-CN"
+market = "CN"
+interval_seconds = 1800
+max_items = 30
+enabled = true
+provider_name = "IT之家"
+provider_kind = "publisher"
+[sources.endpoint]
+adapter = "ithome_news"
+url = "https://api.ithome.com/json/newslist/news"
+
+[[sources]]
+id = "sputnik-news"
+provider_id = "sputnik"
+channel_id = "news"
+channel_label = "资讯"
+channel_role = "section"
+stream_kind = "latest"
+item_kind = "article"
+topics = ["world", "politics"]
+surfaces = ["news"]
+language = "zh-CN"
+market = "CN"
+interval_seconds = 1800
+max_items = 30
+enabled = true
+provider_name = "卫星通讯社"
+provider_kind = "publisher"
+[sources.endpoint]
+adapter = "sputnik_news"
+url = "https://sputniknews.cn/services/widget/lenta/"
+
+[[sources]]
+id = "cankaoxiaoxi"
+provider_id = "cankaoxiaoxi"
+channel_id = "news"
+channel_label = "资讯"
+channel_role = "section"
+stream_kind = "latest"
+item_kind = "article"
+topics = ["world", "politics"]
+surfaces = ["news"]
+language = "zh-CN"
+market = "CN"
+interval_seconds = 1800
+max_items = 30
+enabled = true
+provider_name = "参考消息"
+provider_kind = "publisher"
+[sources.endpoint]
+adapter = "cankaoxiaoxi_news"
+url = "http://china.cankaoxiaoxi.com"
+
+[[sources]]
+id = "cls-telegraph"
+provider_id = "cls"
+channel_id = "telegraph"
+channel_label = "电报"
+channel_role = "section"
+stream_kind = "latest"
+item_kind = "article"
+item_variant = "flash"
+topics = ["business", "markets"]
+surfaces = ["news"]
+language = "zh-CN"
+market = "CN"
+interval_seconds = 1800
+max_items = 30
+enabled = true
+provider_name = "财联社"
+provider_kind = "publisher"
+[sources.endpoint]
+adapter = "cls_telegraph"
+url = "https://www.cls.cn/v1/roll/get_roll_list"
+
+[[sources]]
+id = "cls-depth"
+provider_id = "cls"
+channel_id = "depth"
+channel_label = "深度"
+channel_role = "section"
+stream_kind = "latest"
+item_kind = "article"
+topics = ["business", "markets"]
+surfaces = ["news"]
+language = "zh-CN"
+market = "CN"
+interval_seconds = 1800
+max_items = 30
+enabled = true
+provider_name = "财联社"
+provider_kind = "publisher"
+[sources.endpoint]
+adapter = "cls_depth"
+url = "https://www.cls.cn/v3/depth/home/assembled/1000"
+
+[[sources]]
+id = "cls-hot"
+provider_id = "cls"
+channel_id = "hot"
+channel_label = "热门"
+channel_role = "view"
+stream_kind = "hot"
+item_kind = "article"
+topics = ["business", "markets"]
+surfaces = ["discover"]
+language = "zh-CN"
+market = "CN"
+interval_seconds = 1800
+max_items = 30
+enabled = true
+provider_name = "财联社"
+provider_kind = "publisher"
+[sources.endpoint]
+adapter = "cls_hot"
+url = "https://www.cls.cn/v2/article/hot/list"
+
+[[sources]]
+id = "xueqiu-hotstock"
+provider_id = "xueqiu"
+channel_id = "hot-stock"
+channel_label = "热门股票"
+channel_role = "view"
+stream_kind = "ranking"
+item_kind = "entity"
+entity_kind = "security"
+topics = ["business", "markets"]
+surfaces = ["discover"]
+language = "zh-CN"
+market = "CN"
+interval_seconds = 1800
+max_items = 30
+enabled = true
+provider_name = "雪球"
+provider_kind = "platform"
+[sources.redirect]
+allowed_hosts = ["www.xueqiu.com"]
+[sources.endpoint]
+adapter = "xueqiu_hotstock"
+url = "https://xueqiu.com/"
+
+[[sources]]
+id = "gelonghui"
+provider_id = "gelonghui"
+channel_id = "events"
+channel_label = "事件"
+channel_role = "section"
+stream_kind = "latest"
+item_kind = "article"
+topics = ["business", "markets"]
+surfaces = ["news"]
+language = "zh-CN"
+market = "CN"
+interval_seconds = 1800
+max_items = 30
+enabled = true
+provider_name = "格隆汇"
+provider_kind = "publisher"
+[sources.endpoint]
+adapter = "gelonghui_news"
+url = "https://www.gelonghui.com/news/"
+
+[[sources]]
+id = "fastbull-express"
+provider_id = "fastbull"
+channel_id = "express"
+channel_label = "快讯"
+channel_role = "section"
+stream_kind = "latest"
+item_kind = "article"
+item_variant = "flash"
+topics = ["business", "markets"]
+surfaces = ["news"]
+language = "zh-CN"
+market = "CN"
+interval_seconds = 1800
+max_items = 30
+enabled = true
+provider_name = "法布财经"
+provider_kind = "publisher"
+[sources.endpoint]
+adapter = "fastbull_express"
+url = "https://www.fastbull.com/cn/express-news"
+
+[[sources]]
+id = "fastbull-news"
+provider_id = "fastbull"
+channel_id = "news"
+channel_label = "头条"
+channel_role = "section"
+stream_kind = "latest"
+item_kind = "article"
+topics = ["business", "markets"]
+surfaces = ["news"]
+language = "zh-CN"
+market = "CN"
+interval_seconds = 1800
+max_items = 30
+enabled = true
+provider_name = "法布财经"
+provider_kind = "publisher"
+[sources.endpoint]
+adapter = "fastbull_news"
+url = "https://www.fastbull.com/cn/news"
+
+[[sources]]
+id = "solidot"
+provider_id = "solidot"
+channel_id = "news"
+channel_label = "资讯"
+channel_role = "aggregate"
+stream_kind = "latest"
+item_kind = "article"
+topics = ["technology", "science"]
+surfaces = ["news"]
+language = "zh-CN"
+market = "CN"
+interval_seconds = 1800
+max_items = 30
+enabled = true
+provider_name = "Solidot"
+provider_kind = "publisher"
+[sources.endpoint]
+adapter = "rss"
+url = "https://www.solidot.org/index.rss"
+
+[[sources]]
+id = "bilibili-hot-search"
+provider_id = "bilibili"
+channel_id = "hot-search"
+channel_label = "热搜"
+channel_role = "view"
+stream_kind = "hot"
+item_kind = "entity"
+entity_kind = "topic"
+topics = []
+surfaces = ["discover"]
+language = "zh-CN"
+market = "CN"
+interval_seconds = 1800
+max_items = 30
+enabled = true
+provider_name = "哔哩哔哩"
+provider_kind = "platform"
+[sources.endpoint]
+adapter = "bilibili_hot_search"
+url = "https://s.search.bilibili.com/main/hotword?limit=30"
+
+[[sources]]
+id = "bilibili-hot-video"
+provider_id = "bilibili"
+channel_id = "hot-video"
+channel_label = "热门视频"
+channel_role = "view"
+stream_kind = "hot"
+item_kind = "video"
+topics = ["entertainment"]
+surfaces = ["discover"]
+language = "zh-CN"
+market = "CN"
+interval_seconds = 1800
+max_items = 30
+enabled = true
+provider_name = "哔哩哔哩"
+provider_kind = "platform"
+[sources.endpoint]
+adapter = "bilibili_hot_video"
+url = "https://api.bilibili.com/x/web-interface/popular"
+
+[[sources]]
+id = "bilibili-ranking"
+provider_id = "bilibili"
+channel_id = "ranking"
+channel_label = "排行榜"
+channel_role = "view"
+stream_kind = "ranking"
+item_kind = "video"
+topics = ["entertainment"]
+surfaces = ["discover"]
+language = "zh-CN"
+market = "CN"
+interval_seconds = 1800
+max_items = 30
+enabled = true
+provider_name = "哔哩哔哩"
+provider_kind = "platform"
+[sources.endpoint]
+adapter = "bilibili_ranking"
+url = "https://api.bilibili.com/x/web-interface/ranking"
+
+[[sources]]
+id = "kuaishou"
+provider_id = "kuaishou"
+channel_id = "hot"
+channel_label = "热榜"
+channel_role = "view"
+stream_kind = "hot"
+item_kind = "entity"
+entity_kind = "topic"
+topics = []
+surfaces = ["discover"]
+language = "zh-CN"
+market = "CN"
+interval_seconds = 1800
+max_items = 30
+enabled = false
+provider_name = "快手"
+provider_kind = "platform"
+[sources.endpoint]
+adapter = "kuaishou_hot"
+url = "https://www.kuaishou.com/?isHome=1"
+
+[[sources]]
+id = "kaopu"
+provider_id = "kaopu"
+channel_id = "news"
+channel_label = "资讯"
+channel_role = "section"
+stream_kind = "latest"
+item_kind = "article"
+topics = []
+surfaces = ["news"]
+language = "zh-CN"
+market = "CN"
+interval_seconds = 1800
+max_items = 30
+enabled = true
+provider_name = "靠谱新闻"
+provider_kind = "publisher"
+[sources.endpoint]
+adapter = "kaopu_news"
+url = "https://kaopu.news/"
+
+[[sources]]
+id = "jin10"
+provider_id = "jin10"
+channel_id = "flash"
+channel_label = "快讯"
+channel_role = "section"
+stream_kind = "latest"
+item_kind = "article"
+item_variant = "flash"
+topics = ["business", "markets"]
+surfaces = ["news"]
+language = "zh-CN"
+market = "CN"
+interval_seconds = 1800
+max_items = 30
+enabled = true
+provider_name = "金十数据"
+provider_kind = "publisher"
+[sources.endpoint]
+adapter = "jin10_flash"
+url = "https://www.jin10.com/flash_newest.js"
+
+[[sources]]
+id = "baidu"
+provider_id = "baidu"
+channel_id = "hot-search"
+channel_label = "热搜榜"
+channel_role = "view"
+stream_kind = "ranking"
+item_kind = "entity"
+entity_kind = "topic"
+topics = []
+surfaces = ["discover"]
+language = "zh-CN"
+market = "CN"
+interval_seconds = 1800
+max_items = 30
+enabled = true
+provider_name = "百度"
+provider_kind = "platform"
+[sources.endpoint]
+adapter = "baidu_hot_search"
+url = "https://top.baidu.com/board?tab=realtime"
+
+[[sources]]
+id = "nowcoder"
+provider_id = "nowcoder"
+channel_id = "hot"
+channel_label = "热榜"
+channel_role = "view"
+stream_kind = "hot"
+item_kind = "post"
+topics = ["technology"]
+surfaces = ["discover"]
+language = "zh-CN"
+market = "CN"
+interval_seconds = 1800
+max_items = 30
+enabled = true
+provider_name = "牛客"
+provider_kind = "community"
+[sources.endpoint]
+adapter = "nowcoder_hot"
+url = "https://gw-c.nowcoder.com/api/sparta/hot-search/top-hot-pc"
+
+[[sources]]
+id = "sspai"
+provider_id = "sspai"
+channel_id = "hot"
+channel_label = "热门"
+channel_role = "view"
+stream_kind = "hot"
+item_kind = "article"
+topics = ["technology"]
+surfaces = ["discover"]
+language = "zh-CN"
+market = "CN"
+interval_seconds = 1800
+max_items = 30
+enabled = true
+provider_name = "少数派"
+provider_kind = "publisher"
+[sources.endpoint]
+adapter = "sspai_hot"
+url = "https://sspai.com/api/v1/article/tag/page/get"
+
+[[sources]]
+id = "juejin"
+provider_id = "juejin"
+channel_id = "hot"
+channel_label = "热门"
+channel_role = "view"
+stream_kind = "hot"
+item_kind = "post"
+topics = ["technology"]
+surfaces = ["discover"]
+language = "zh-CN"
+market = "CN"
+interval_seconds = 1800
+max_items = 30
+enabled = true
+provider_name = "稀土掘金"
+provider_kind = "platform"
+[sources.endpoint]
+adapter = "juejin_hot"
+url = "https://api.juejin.cn/content_api/v1/content/article_rank?category_id=1&type=hot&spider=0"
+
+[[sources]]
+id = "ifeng"
+provider_id = "ifeng"
+channel_id = "hot"
+channel_label = "热点资讯"
+channel_role = "view"
+stream_kind = "hot"
+item_kind = "article"
+topics = []
+surfaces = ["discover"]
+language = "zh-CN"
+market = "CN"
+interval_seconds = 1800
+max_items = 30
+enabled = true
+provider_name = "凤凰网"
+provider_kind = "publisher"
+[sources.endpoint]
+adapter = "ifeng_hot"
+url = "https://www.ifeng.com/"
+
+[[sources]]
+id = "chongbuluo-latest"
+provider_id = "chongbuluo"
+channel_id = "latest"
+channel_label = "最新"
+channel_role = "view"
+stream_kind = "latest"
+item_kind = "post"
+topics = ["technology"]
+surfaces = ["news"]
+language = "zh-CN"
+market = "CN"
+interval_seconds = 1800
+max_items = 30
+enabled = true
+provider_name = "虫部落"
+provider_kind = "community"
+[sources.endpoint]
+adapter = "rss"
+url = "https://www.chongbuluo.com/forum.php?mod=rss&view=newthread"
+
+[[sources]]
+id = "chongbuluo-hot"
+provider_id = "chongbuluo"
+channel_id = "hot"
+channel_label = "最热"
+channel_role = "view"
+stream_kind = "hot"
+item_kind = "post"
+topics = ["technology"]
+surfaces = ["discover"]
+language = "zh-CN"
+market = "CN"
+interval_seconds = 1800
+max_items = 30
+enabled = true
+provider_name = "虫部落"
+provider_kind = "community"
+[sources.endpoint]
+adapter = "chongbuluo_hot"
+url = "https://www.chongbuluo.com/forum.php?mod=guide&view=hot"
+
+[[sources]]
+id = "douban"
+provider_id = "douban"
+channel_id = "hot-movies"
+channel_label = "热门电影"
+channel_role = "view"
+stream_kind = "hot"
+item_kind = "entity"
+entity_kind = "movie"
+topics = ["entertainment"]
+surfaces = ["discover"]
+language = "zh-CN"
+market = "CN"
+interval_seconds = 1800
+max_items = 30
+enabled = true
+provider_name = "豆瓣"
+provider_kind = "platform"
+[sources.endpoint]
+adapter = "douban_hot_movies"
+url = "https://m.douban.com/rexxar/api/v2/subject/recent_hot/movie"
+
+[[sources]]
+id = "tencent-hot"
+provider_id = "tencent"
+channel_id = "morning"
+channel_label = "综合早报"
+channel_role = "aggregate"
+stream_kind = "curated"
+item_kind = "article"
+topics = []
+surfaces = ["news"]
+language = "zh-CN"
+market = "CN"
+interval_seconds = 1800
+max_items = 30
+enabled = true
+provider_name = "腾讯新闻"
+provider_kind = "publisher"
+[sources.endpoint]
+adapter = "tencent_hot"
+url = "https://i.news.qq.com/web_backend/v2/getTagInfo?tagId=aEWqxLtdgmQ%3D"
+
+[[sources]]
+id = "qqvideo-tv-hotsearch"
+provider_id = "qqvideo"
+channel_id = "hot-search"
+channel_label = "热搜榜"
+channel_role = "view"
+stream_kind = "hot"
+item_kind = "video"
+topics = ["entertainment"]
+surfaces = ["discover"]
+language = "zh-CN"
+market = "CN"
+interval_seconds = 1800
+max_items = 30
+enabled = true
+provider_name = "腾讯视频"
+provider_kind = "platform"
+[sources.endpoint]
+adapter = "qqvideo_hot_search"
+url = "https://pbaccess.video.qq.com/trpc.vector_layout.page_view.PageService/getCard?video_appid=3000010&vversion_platform=2"
+
+[[sources]]
+id = "iqiyi-hot-ranklist"
+provider_id = "iqiyi"
+channel_id = "ranklist"
+channel_label = "热播榜"
+channel_role = "view"
+stream_kind = "ranking"
+item_kind = "video"
+topics = ["entertainment"]
+surfaces = ["discover"]
+language = "zh-CN"
+market = "CN"
+interval_seconds = 1800
+max_items = 30
+enabled = true
+provider_name = "爱奇艺"
+provider_kind = "platform"
+[sources.endpoint]
+adapter = "iqiyi_hot_ranklist"
+url = "https://mesh.if.iqiyi.com/portal/lw/v7/channel/card/videoTab"

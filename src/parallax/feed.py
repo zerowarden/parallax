@@ -215,8 +215,10 @@ def _headline_feed_row(
 def _identity_keys(row: HeadlineRow, index: int) -> tuple[str, str]:
     """Return the URL and title keys that decide exact group membership."""
     url_key = f"url:{row.canonical_url}" if row.canonical_url else ""
+    entity = row.entity_kind or ""
     title_key = (
-        f"title:{row.item_kind}:{normalize_title_for_version(row.title).casefold()}"
+        f"title:{row.item_kind}:{entity}:"
+        f"{normalize_title_for_version(row.title).casefold()}"
         if row.title.strip()
         else ""
     )

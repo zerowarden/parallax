@@ -4,14 +4,13 @@ import json
 import re
 
 from parallax.adapters.common.http import html_request
-from parallax.adapters.common.options import option_int
 from parallax.adapters.common.parsing import (
     decode_html,
     require_list,
     require_mapping,
     text,
 )
-from parallax.config import SourceConfig
+from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
@@ -31,10 +30,10 @@ class BaiduHotSearchAdapter:
     canonical search surface for the hot word.
     """
 
-    def build_request(self, source: SourceConfig) -> RequestSpec:
+    def build_request(self, source: Source) -> RequestSpec:
         return html_request(source)
 
-    def parse(self, source: SourceConfig, response: HttpResponse) -> ParsedBatch:
+    def parse(self, source: Source, response: HttpResponse) -> ParsedBatch:
         html = decode_html(response.content, label="Baidu")
         match = EMBEDDED_DATA.search(html)
         if match is None:
@@ -59,7 +58,7 @@ class BaiduHotSearchAdapter:
             "Baidu card does not contain a content list",
         )
 
-        max_items = option_int(source, "max_items", 30)
+        max_items = source.max_items
         candidates: list[HeadlineCandidate] = []
         for entry in entries:
             if not isinstance(entry, dict) or entry.get("isTop"):
@@ -71,7 +70,6 @@ class BaiduHotSearchAdapter:
                     url=url,
                     external_id=None,
                     position=len(candidates) + 1,
-                    metrics={"stream_kind": source.stream_kind},
                 )
             )
             if len(candidates) >= max_items:

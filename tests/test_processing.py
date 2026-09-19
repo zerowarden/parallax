@@ -6,11 +6,18 @@ from pathlib import Path
 
 import pytest
 
-from parallax.config import SourceConfig
-from parallax.domain import HeadlineCandidate, ItemKind, ValidatedBatch
+from parallax.config import Source
+from parallax.domain import (
+    EntityKind,
+    HeadlineCandidate,
+    ItemKind,
+    ItemVariant,
+    ValidatedBatch,
+)
 from parallax.processing.changelog import ChangeLogReader
 from parallax.processing.input import AnalysisInputReader
 from parallax.storage import Storage
+from source_factory import make_source
 
 OBSERVED_AT = datetime(2026, 9, 18, 12, 0, tzinfo=UTC)
 CONSUMER = "classifier-v1"
@@ -20,24 +27,25 @@ def _source(
     source_id: str = "fixture",
     *,
     item_kind: ItemKind = "article",
+    entity_kind: EntityKind | None = None,
+    item_variant: ItemVariant | None = None,
     language: str = "en-US",
     enabled: bool = True,
-) -> SourceConfig:
-    return SourceConfig(
+) -> Source:
+    return make_source(
         id=source_id,
-        name=source_id,
-        region="US",
-        language=language,
-        adapter="rss",
         url=f"https://example.com/{source_id}.xml",
         item_kind=item_kind,
+        entity_kind=entity_kind,
+        item_variant=item_variant,
+        language=language,
         enabled=enabled,
     )
 
 
 def _record(
     storage: Storage,
-    source: SourceConfig,
+    source: Source,
     candidates: tuple[HeadlineCandidate, ...],
 ) -> None:
     run_id = storage.start_fetch_run(source.id)
@@ -87,7 +95,7 @@ def test_independent_consumer_checkpoint(tmp_path: Path):
 def test_analysis_input_projects_committed_item_version(tmp_path: Path) -> None:
     storage = Storage(tmp_path / "parallax.db")
     storage.initialize()
-    source = _source(item_kind="flash", language="zh-CN")
+    source = _source(item_kind="article", item_variant="flash", language="zh-CN")
     storage.sync_sources([source])
     published = datetime(2026, 9, 17, 8, 30, tzinfo=UTC)
     _record(
@@ -109,7 +117,9 @@ def test_analysis_input_projects_committed_item_version(tmp_path: Path) -> None:
     assert item.source_language == "zh-CN"
     assert item.source_enabled is True
     assert item.stream_kind == "latest"
-    assert item.item_kind == "flash"
+    assert item.item_kind == "article"
+    assert item.entity_kind is None
+    assert item.item_variant == "flash"
     assert item.original_url == "https://example.com/1?utm_source=fixture"
     assert item.canonical_url == "https://example.com/1"
     assert item.published_at == published

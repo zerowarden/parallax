@@ -3,9 +3,8 @@ from __future__ import annotations
 from selectolax.parser import HTMLParser
 
 from parallax.adapters.common.http import html_request
-from parallax.adapters.common.options import option_int
 from parallax.adapters.common.parsing import decode_html, text
-from parallax.config import SourceConfig
+from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
@@ -24,13 +23,13 @@ class FastbullExpressAdapter:
     `data-date`; the constructed article URL is used as stable identity.
     """
 
-    def build_request(self, source: SourceConfig) -> RequestSpec:
+    def build_request(self, source: Source) -> RequestSpec:
         return html_request(source)
 
-    def parse(self, source: SourceConfig, response: HttpResponse) -> ParsedBatch:
+    def parse(self, source: Source, response: HttpResponse) -> ParsedBatch:
         tree = HTMLParser(decode_html(response.content, label="Fastbull"))
 
-        max_items = option_int(source, "max_items", 30)
+        max_items = source.max_items
         candidates: list[HeadlineCandidate] = []
         for row in tree.css(".content-list.news-list"):
             title_node = row.css_first(".title_name")
@@ -50,7 +49,6 @@ class FastbullExpressAdapter:
                     published_at=parse_timestamp(raw_published),
                     raw_published_at=raw_published or None,
                     position=len(candidates) + 1,
-                    metrics={"stream_kind": source.stream_kind},
                 )
             )
             if len(candidates) >= max_items:
@@ -69,13 +67,13 @@ class FastbullNewsAdapter:
     epoch) descendants; the article URL is used as stable identity.
     """
 
-    def build_request(self, source: SourceConfig) -> RequestSpec:
+    def build_request(self, source: Source) -> RequestSpec:
         return html_request(source)
 
-    def parse(self, source: SourceConfig, response: HttpResponse) -> ParsedBatch:
+    def parse(self, source: Source, response: HttpResponse) -> ParsedBatch:
         tree = HTMLParser(decode_html(response.content, label="Fastbull"))
 
-        max_items = option_int(source, "max_items", 30)
+        max_items = source.max_items
         candidates: list[HeadlineCandidate] = []
         for row in tree.css(".news-top .trending_type"):
             title_node = row.css_first(".title")
@@ -97,7 +95,6 @@ class FastbullNewsAdapter:
                     published_at=parse_timestamp(raw_published),
                     raw_published_at=raw_published or None,
                     position=len(candidates) + 1,
-                    metrics={"stream_kind": source.stream_kind},
                 )
             )
             if len(candidates) >= max_items:

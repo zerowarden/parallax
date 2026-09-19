@@ -10,7 +10,7 @@ from parallax.domain import (
     ParsedBatch,
     ValidatedBatch,
 )
-from parallax.identity import identity_key
+from parallax.identity import identity_keys
 
 LOGGER = logging.getLogger(__name__)
 
@@ -35,11 +35,19 @@ class BatchValidator:
     def __init__(self, config: ValidationConfig) -> None:
         self._config = config
 
-    def validate(self, source_id: str, batch: ParsedBatch) -> ValidatedBatch:
+    def validate(
+        self,
+        source_id: str,
+        batch: ParsedBatch,
+        *,
+        provider_id: str,
+    ) -> ValidatedBatch:
         accepted: list[HeadlineCandidate] = []
         warnings = list(batch.warnings)
         rejected = 0
-        seen: set[str] = set()
+        seen_primary: set[str] = set()
+        seen_urls: set[str] = set()
+        seen_url_fallbacks: set[str] = set()
         now = datetime.now(UTC)
         future_limit = now + timedelta(seconds=self._config.max_future_seconds)
 
@@ -55,17 +63,29 @@ class BatchValidator:
                 )
                 continue
 
-            key = identity_key(candidate)
-            if key in seen:
+            primary_key, url_key = identity_keys(
+                candidate,
+                provider_id=provider_id,
+            )
+            uses_url_fallback = primary_key == url_key
+            duplicate = primary_key in seen_primary
+            if uses_url_fallback:
+                duplicate = duplicate or url_key in seen_urls
+            else:
+                duplicate = duplicate or url_key in seen_url_fallbacks
+            if duplicate:
                 rejected += 1
-                warnings.append(f"duplicate identity in batch: {key}")
+                warnings.append(f"duplicate identity in batch: {primary_key}")
                 LOGGER.warning(
                     "operation=validate_duplicate source_id=%s identity=%s",
                     source_id,
-                    key,
+                    primary_key,
                 )
                 continue
-            seen.add(key)
+            seen_primary.add(primary_key)
+            seen_urls.add(url_key)
+            if uses_url_fallback:
+                seen_url_fallbacks.add(url_key)
             accepted.append(candidate)
 
         if not accepted and not self._config.allow_empty_batches:

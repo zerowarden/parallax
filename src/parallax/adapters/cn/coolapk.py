@@ -10,9 +10,8 @@ from typing import Any
 from selectolax.parser import HTMLParser
 
 from parallax.adapters.common.http import json_request
-from parallax.adapters.common.options import option_int
 from parallax.adapters.common.parsing import decode_json_object, require_list, text
-from parallax.config import SourceConfig
+from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
@@ -65,20 +64,20 @@ class CoolapkHotAdapter:
     editor title is set, and the row subtitle is kept as the heat metric.
     """
 
-    def build_request(self, source: SourceConfig) -> RequestSpec:
+    def build_request(self, source: Source) -> RequestSpec:
         now = int(time.time())
         headers = dict(STATIC_HEADERS)
         headers["X-App-Token"] = app_token(now=now, device=new_device_id())
         return json_request(source, headers=headers)
 
-    def parse(self, source: SourceConfig, response: HttpResponse) -> ParsedBatch:
+    def parse(self, source: Source, response: HttpResponse) -> ParsedBatch:
         payload = decode_json_object(response.content, label="Coolapk")
         entries = require_list(
             payload.get("data"),
             "Coolapk response does not contain a data list",
         )
 
-        max_items = option_int(source, "max_items", 30)
+        max_items = source.max_items
         candidates: list[HeadlineCandidate] = []
         for entry in entries:
             if not isinstance(entry, dict):
@@ -91,7 +90,7 @@ class CoolapkHotAdapter:
             )
             if not title:
                 continue
-            metrics: dict[str, Any] = {"stream_kind": source.stream_kind}
+            metrics: dict[str, Any] = {}
             target_row = entry.get("targetRow")
             if isinstance(target_row, dict):
                 heat = text(target_row.get("subTitle"))
