@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Parallax</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='web.css') }}">
+</head>
+<body>
+<div class="wrap">
+<header>
+  <div class="brand">PARALLAX</div>
+  <nav class="views">
+    <a class="{{ 'active' if view == 'all' else '' }}" href="{{ browse_url(view='all', days=days, q=query, source=source_id) }}">All</a>
+    <a class="{{ 'active' if view == 'news' else '' }}" href="{{ browse_url(view='news', days=days, q=query, source=source_id) }}">News</a>
+    <a class="{{ 'active' if view == 'discover' else '' }}" href="{{ browse_url(view='discover', days=days, q=query, source=source_id) }}">Discover</a>
+  </nav>
+  <nav class="days">
+    {% for value, label in day_windows %}
+    <a class="{{ 'active' if days == value else '' }}" href="{{ browse_url(view=view, days=value, q=query, source=source_id) }}">{{ label }}</a>
+    {% endfor %}
+  </nav>
+  <form class="filters" method="get" action="{{ url_for('index') }}">
+    <input type="hidden" name="view" value="{{ view }}">
+    <input type="hidden" name="days" value="{{ days }}">
+    <input type="search" name="q" value="{{ query }}" placeholder="Search headlines">
+    <select name="source" aria-label="Source">
+      <option value="">All sources</option>
+      {% for option in sources %}
+      <option value="{{ option.id }}" {{ 'selected' if option.id == source_id else '' }}>{{ option.name }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit">Filter</button>
+  </form>
+</header>
+<main>
+  {% if browse.items %}
+  <ol class="headlines">
+    {% for item in browse.items %}
+    <li>
+      <div class="meta">
+        <span class="source">{{ item.source_name }}{% if item.duplicate_count > 0 %} (+{{ item.duplicate_count }}){% endif %}</span>
+        <span>observed <time datetime="{{ item.first_seen_at }}" title="{{ item.first_seen_at }}">{{ item.first_seen_at | relative(now) }}</time></span>
+      </div>
+      <div class="headline">
+        {% if item.url is usable_url %}<a href="{{ item.url }}" target="_blank" rel="noopener noreferrer">{{ item.title }}</a>{% else %}{{ item.title }}{% endif %}
+      </div>
+      {% if item.published_at %}
+      <div class="published">Published <time datetime="{{ item.published_at }}" title="{{ item.published_at }}">{{ item.published_at | relative(now) }}</time></div>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ol>
+  <nav class="pagination">
+    {% if browse.page > 1 %}
+    <a href="{{ browse_url(view=view, days=days, q=query, source=source_id, page=browse.page - 1) }}">&larr; Newer</a>
+    {% else %}
+    <span class="disabled">&larr; Newer</span>
+    {% endif %}
+    <span class="page">Page {{ browse.page }} / {{ browse.total_pages }}</span>
+    {% if browse.page < browse.total_pages %}
+    <a href="{{ browse_url(view=view, days=days, q=query, source=source_id, page=browse.page + 1) }}">Older &rarr;</a>
+    {% else %}
+    <span class="disabled">Older &rarr;</span>
+    {% endif %}
+  </nav>
+  {% else %}
+  <p class="empty">No items match the current filters.</p>
+  <p class="empty"><a href="{{ browse_url(view='news', days=1) }}">News &middot; Today &middot; All sources</a></p>
+  {% endif %}
+</main>
+</div>
+</body>
+</html>

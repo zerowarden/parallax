@@ -12,12 +12,16 @@ from pathlib import Path
 
 from parallax.config import SourceConfig
 from parallax.domain import (
+    DISCOVER_ITEM_KINDS,
+    DISCOVER_STREAM_KINDS,
     AnalysisItem,
+    BrowseView,
     ChangeEvent,
     HeadlineCandidate,
     IngestionSummary,
     StreamState,
     ValidatedBatch,
+    is_browse_view,
     is_item_kind,
     is_stream_kind,
 )
@@ -26,6 +30,16 @@ from parallax.normalization import canonicalize_url, normalize_title_for_version
 
 LOGGER = logging.getLogger(__name__)
 SCHEMA_VERSION = 1
+
+_LATEST_ITEM_VERSION_JOIN_SQL = """
+    JOIN item_versions iv ON iv.id = (
+        SELECT iv2.id
+        FROM item_versions iv2
+        WHERE iv2.item_id = i.id
+        ORDER BY iv2.last_seen_at DESC, iv2.id DESC
+        LIMIT 1
+    )
+"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,6 +167,9 @@ class Storage:
 
                 CREATE INDEX IF NOT EXISTS idx_items_source_published
                     ON items(source_id, published_at DESC);
+
+                CREATE INDEX IF NOT EXISTS idx_items_first_seen
+                    ON items(first_seen_at);
 
                 CREATE TABLE IF NOT EXISTS item_versions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -685,6 +702,107 @@ class Storage:
             for row in rows
         ]
 
+    def browse_headlines(
+        self,
+        *,
+        view: BrowseView,
+        since: datetime,
+        until: datetime,
+        query: str | None = None,
+        source_id: str | None = None,
+        limit: int,
+        offset: int,
+    ) -> list[HeadlineRow]:
+        """Read one bounded page of durable item history.
+
+        Unlike :meth:`latest_snapshot_headlines`, this is not restricted to the
+        latest snapshot, and each item is projected with its most recently
+        observed stored title version. Ordered newest first.
+        """
+        if limit < 1:
+            raise ValueError("limit must be positive")
+        if offset < 0:
+            raise ValueError("offset must not be negative")
+        filters, params = _browse_filters(
+            view=view,
+            since=since,
+            until=until,
+            query=query,
+            source_id=source_id,
+        )
+        params.extend((limit, offset))
+        rows = self._connection.execute(
+            f"""
+            SELECT
+                i.source_id,
+                src.name AS source_name,
+                i.id AS item_id,
+                src.stream_kind,
+                i.item_kind,
+                NULL AS position,
+                iv.title,
+                i.original_url AS url,
+                i.canonical_url,
+                i.published_at,
+                i.first_seen_at
+            FROM items i
+            JOIN sources src ON src.source_id = i.source_id
+            {_LATEST_ITEM_VERSION_JOIN_SQL}
+            WHERE {" AND ".join(filters)}
+            ORDER BY i.first_seen_at DESC, i.id DESC
+            LIMIT ? OFFSET ?
+            """,
+            params,
+        ).fetchall()
+        return [
+            HeadlineRow(
+                source_id=row["source_id"],
+                source_name=row["source_name"],
+                item_id=row["item_id"],
+                stream_kind=row["stream_kind"],
+                item_kind=row["item_kind"],
+                position=row["position"],
+                title=row["title"],
+                url=row["url"],
+                canonical_url=row["canonical_url"],
+                published_at=row["published_at"],
+                first_seen_at=row["first_seen_at"],
+            )
+            for row in rows
+        ]
+
+    def count_browse_headlines(
+        self,
+        *,
+        view: BrowseView,
+        since: datetime,
+        until: datetime,
+        query: str | None = None,
+        source_id: str | None = None,
+    ) -> int:
+        """Count durable items matching the same predicates as browsing."""
+        filters, params = _browse_filters(
+            view=view,
+            since=since,
+            until=until,
+            query=query,
+            source_id=source_id,
+        )
+        version_join = _LATEST_ITEM_VERSION_JOIN_SQL if query else ""
+        row = self._connection.execute(
+            f"""
+            SELECT COUNT(*)
+            FROM items i
+            JOIN sources src ON src.source_id = i.source_id
+            {version_join}
+            WHERE {" AND ".join(filters)}
+            """,
+            params,
+        ).fetchone()
+        if row is None:
+            raise RuntimeError("browse count query returned no row")
+        return int(row[0])
+
     def recent_fetch_runs(self, limit: int = 20) -> list[FetchRunRow]:
         rows = self._connection.execute(
             """
@@ -1130,6 +1248,54 @@ def _analysis_item(
 
 def _iso(value: datetime) -> str:
     return value.astimezone(UTC).isoformat(timespec="seconds")
+
+
+def _browse_filters(
+    *,
+    view: BrowseView,
+    since: datetime,
+    until: datetime,
+    query: str | None,
+    source_id: str | None,
+) -> tuple[list[str], list[object]]:
+    if not is_browse_view(view):
+        raise ValueError(f"unknown browse view: {view}")
+    if since.tzinfo is None or until.tzinfo is None:
+        raise ValueError("browse timestamps must be timezone-aware")
+    if since > until:
+        raise ValueError("browse start must not be after its end")
+
+    filters = [
+        "i.first_seen_at >= ?",
+        "i.first_seen_at <= ?",
+        "src.enabled = 1",
+    ]
+    params: list[object] = [_iso(since), _iso(until)]
+    if view != "all":
+        stream_kinds = sorted(DISCOVER_STREAM_KINDS)
+        item_kinds = sorted(DISCOVER_ITEM_KINDS)
+        stream_placeholders = ", ".join("?" for _ in stream_kinds)
+        item_placeholders = ", ".join("?" for _ in item_kinds)
+        discover_filter = (
+            f"(src.stream_kind IN ({stream_placeholders}) "
+            f"OR i.item_kind IN ({item_placeholders}))"
+        )
+        filters.append(
+            discover_filter if view == "discover" else f"NOT {discover_filter}"
+        )
+        params.extend(stream_kinds)
+        params.extend(item_kinds)
+    if source_id:
+        filters.append("i.source_id = ?")
+        params.append(source_id)
+    if query:
+        filters.append("iv.title LIKE ? ESCAPE '\\'")
+        params.append(f"%{_escape_like(query)}%")
+    return filters, params
+
+
+def _escape_like(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 def _parse_dt(value: str | None) -> datetime | None:

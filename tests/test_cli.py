@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 
 import pytest
@@ -253,3 +254,82 @@ def test_show_rejects_unknown_order(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert result.exit_code == 2
     assert runtime.storage.calls == []
+
+
+class _WebApp:
+    def __init__(self) -> None:
+        self.run_calls: list[dict[str, object]] = []
+
+    def run(self, **kwargs: object) -> None:
+        self.run_calls.append(kwargs)
+
+
+class _WebRuntime:
+    def __init__(self, storage: object) -> None:
+        self.registry = _Registry()
+        self.storage = storage
+
+    def __enter__(self) -> _WebRuntime:
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        return None
+
+
+def test_web_serves_local_reader_with_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    application = _WebApp()
+    runtime = _WebRuntime(storage=object())
+    captured: dict[str, object] = {}
+
+    def fake_create_app(storage: object, sources: object) -> _WebApp:
+        captured["storage"] = storage
+        captured["sources"] = sources
+        return application
+
+    monkeypatch.setattr("parallax.cli._runtime", lambda config: runtime)
+    monkeypatch.setattr("parallax.cli.create_app", fake_create_app)
+
+    result = CliRunner().invoke(app, ["web"])
+
+    assert result.exit_code == 0
+    assert "Parallax web reader: http://127.0.0.1:8765" in result.output
+    assert application.run_calls == [
+        {"host": "127.0.0.1", "port": 8765, "threaded": False}
+    ]
+    assert captured["storage"] is runtime.storage
+
+
+def test_web_forwards_host_and_port(monkeypatch: pytest.MonkeyPatch) -> None:
+    application = _WebApp()
+    runtime = _WebRuntime(storage=object())
+
+    monkeypatch.setattr("parallax.cli._runtime", lambda config: runtime)
+    monkeypatch.setattr(
+        "parallax.cli.create_app",
+        lambda storage, sources: application,
+    )
+
+    result = CliRunner().invoke(app, ["web", "--host", "127.0.0.1", "--port", "9000"])
+
+    assert result.exit_code == 0
+    assert "Parallax web reader: http://127.0.0.1:9000" in result.output
+    assert application.run_calls[0]["port"] == 9000
+
+
+def test_web_quiets_werkzeug_access_logs(monkeypatch: pytest.MonkeyPatch) -> None:
+    application = _WebApp()
+    runtime = _WebRuntime(storage=object())
+    werkzeug_logger = logging.getLogger("werkzeug")
+    monkeypatch.setattr(werkzeug_logger, "level", logging.INFO)
+    monkeypatch.setattr("parallax.cli._runtime", lambda config: runtime)
+    monkeypatch.setattr(
+        "parallax.cli.create_app",
+        lambda storage, sources: application,
+    )
+
+    result = CliRunner().invoke(app, ["web"])
+
+    assert result.exit_code == 0
+    assert werkzeug_logger.level == logging.WARNING

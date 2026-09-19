@@ -18,8 +18,15 @@ ItemKind = Literal[
     "trend",
     "video",
 ]
+BrowseView = Literal["all", "news", "discover"]
+BrowseCategory = Literal["news", "discover"]
 STREAM_KINDS: frozenset[str] = frozenset(get_args(StreamKind))
 ITEM_KINDS: frozenset[str] = frozenset(get_args(ItemKind))
+BROWSE_VIEWS: frozenset[str] = frozenset(get_args(BrowseView))
+DISCOVER_STREAM_KINDS: frozenset[str] = frozenset({"hot"})
+DISCOVER_ITEM_KINDS: frozenset[str] = frozenset(
+    {"game", "movie", "product", "ranking", "repository", "trend", "video"}
+)
 
 
 def is_stream_kind(value: str) -> TypeGuard[StreamKind]:
@@ -28,6 +35,23 @@ def is_stream_kind(value: str) -> TypeGuard[StreamKind]:
 
 def is_item_kind(value: str) -> TypeGuard[ItemKind]:
     return value in ITEM_KINDS
+
+
+def is_browse_view(value: str) -> TypeGuard[BrowseView]:
+    return value in BROWSE_VIEWS
+
+
+def classify_browse_view(
+    *, stream_kind: StreamKind, item_kind: ItemKind
+) -> BrowseCategory:
+    """Map stored stream/item metadata to the reader's top-level views.
+
+    Discovery covers ranking/trending/list surfaces and object catalogues;
+    everything else is treated as news/editorial reporting.
+    """
+    if stream_kind in DISCOVER_STREAM_KINDS or item_kind in DISCOVER_ITEM_KINDS:
+        return "discover"
+    return "news"
 
 
 @dataclass(frozen=True, slots=True)

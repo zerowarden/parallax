@@ -2,12 +2,15 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Literal
+from datetime import datetime
+from typing import Literal, Protocol
 
+from parallax.domain import BrowseView
 from parallax.normalization import normalize_title_for_version
 from parallax.storage import HeadlineRow
 
 FeedOrder = Literal["observed", "published"]
+PAGE_SIZE = 100
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,6 +29,83 @@ class HeadlineFeedRow:
     first_seen_at: str
     source_name: str
     duplicate_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class BrowsePage:
+    """One bounded page of source-local headlines for a browse view."""
+
+    items: tuple[HeadlineFeedRow, ...]
+    page: int
+    total_pages: int
+
+
+class BrowseHeadlineReader(Protocol):
+    def count_browse_headlines(
+        self,
+        *,
+        view: BrowseView,
+        since: datetime,
+        until: datetime,
+        query: str | None = None,
+        source_id: str | None = None,
+    ) -> int: ...
+
+    def browse_headlines(
+        self,
+        *,
+        view: BrowseView,
+        since: datetime,
+        until: datetime,
+        query: str | None = None,
+        source_id: str | None = None,
+        limit: int,
+        offset: int,
+    ) -> list[HeadlineRow]: ...
+
+
+def browse_items(
+    storage: BrowseHeadlineReader,
+    *,
+    view: BrowseView,
+    since: datetime,
+    until: datetime,
+    query: str | None = None,
+    source_id: str | None = None,
+    page: int = 1,
+    page_size: int = PAGE_SIZE,
+) -> BrowsePage:
+    """Read one bounded page of historical items for a top-level browse view.
+
+    Browser pagination intentionally keeps source-local rows. The terminal's
+    transitive cross-source grouping requires the complete result set, which
+    would defeat bounded SQL pagination here.
+    """
+    if page_size < 1:
+        raise ValueError("page_size must be positive")
+    total_items = storage.count_browse_headlines(
+        view=view,
+        since=since,
+        until=until,
+        query=query,
+        source_id=source_id,
+    )
+    total_pages = max(1, (total_items + page_size - 1) // page_size)
+    current_page = min(max(page, 1), total_pages)
+    rows = storage.browse_headlines(
+        view=view,
+        since=since,
+        until=until,
+        query=query,
+        source_id=source_id,
+        limit=page_size,
+        offset=(current_page - 1) * page_size,
+    )
+    return BrowsePage(
+        items=tuple(_headline_feed_row(row, duplicate_count=0) for row in rows),
+        page=current_page,
+        total_pages=total_pages,
+    )
 
 
 def build_headline_groups(
@@ -113,14 +193,22 @@ def _representative(
 
 
 def _feed_row(group: HeadlineGroup) -> HeadlineFeedRow:
-    representative = group.representative
+    return _headline_feed_row(
+        group.representative,
+        duplicate_count=len(group.appearances) - 1,
+    )
+
+
+def _headline_feed_row(
+    representative: HeadlineRow, *, duplicate_count: int
+) -> HeadlineFeedRow:
     return HeadlineFeedRow(
         title=representative.title,
         url=representative.url,
         published_at=representative.published_at,
         first_seen_at=representative.first_seen_at,
         source_name=representative.source_name,
-        duplicate_count=len(group.appearances) - 1,
+        duplicate_count=duplicate_count,
     )
 
 

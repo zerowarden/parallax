@@ -46,6 +46,25 @@ def test_change_log_has_source_and_created_at_index(tmp_path: Path) -> None:
     assert columns == ["source_id", "created_at"]
 
 
+def test_items_have_first_seen_index(tmp_path: Path) -> None:
+    database_path = tmp_path / "parallax.db"
+    storage = Storage(database_path)
+    storage.initialize()
+    storage.close()
+
+    with sqlite3.connect(database_path) as connection:
+        indexes = {
+            row[1]: row for row in connection.execute("PRAGMA index_list(items)")
+        }
+        columns = [
+            row[2]
+            for row in connection.execute("PRAGMA index_info(idx_items_first_seen)")
+        ]
+
+    assert "idx_items_first_seen" in indexes
+    assert columns == ["first_seen_at"]
+
+
 def test_storage_preserves_versions_and_is_idempotent(tmp_path: Path):
     storage = Storage(tmp_path / "parallax.db")
     storage.initialize()

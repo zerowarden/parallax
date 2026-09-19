@@ -11,6 +11,7 @@ from parallax.feed import FeedOrder, build_headline_feed, build_headline_groups
 from parallax.parsing import parse_since
 from parallax.presentation import Presenter
 from parallax.runtime import Runtime
+from parallax.web import create_app
 
 app = typer.Typer(
     no_args_is_help=True,
@@ -194,6 +195,26 @@ def show_headlines(
             Presenter().feed(build_headline_feed(groups), order=order)
         else:
             Presenter().headlines(rows)
+
+
+@app.command("web")
+def serve_web(
+    host: Annotated[
+        str,
+        typer.Option("--host", help="Address the local reader binds to."),
+    ] = "127.0.0.1",
+    port: Annotated[
+        int,
+        typer.Option("--port", min=1, max=65535, help="Port for the local reader."),
+    ] = 8765,
+    config: CONFIG_OPTION = Path("config.toml"),
+) -> None:
+    """Serve the browser reader over the stored headline archive."""
+    with _runtime(config) as runtime:
+        logging.getLogger("werkzeug").setLevel(logging.WARNING)
+        application = create_app(runtime.storage, runtime.registry.enabled())
+        typer.echo(f"Parallax web reader: http://{host}:{port}")
+        application.run(host=host, port=port, threaded=False)
 
 
 @app.command("doctor")
