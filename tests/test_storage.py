@@ -871,6 +871,161 @@ def test_distinct_external_ids_with_same_url_remain_distinct(tmp_path: Path) -> 
     ]
 
 
+def test_identity_and_alias_candidates_collapse_into_one_snapshot_entry(
+    tmp_path: Path,
+) -> None:
+    storage = Storage(tmp_path / "parallax.db")
+    storage.initialize()
+    source = _source()
+    storage.sync_sources([source])
+
+    first_run = storage.start_fetch_run(source.id)
+    storage.record_success(
+        source,
+        first_run,
+        200,
+        ValidatedBatch(
+            candidates=(
+                HeadlineCandidate(
+                    title="Original headline",
+                    url="https://example.com/old",
+                    external_id="story-1",
+                    position=1,
+                ),
+            ),
+            rejected_count=0,
+        ),
+        None,
+        None,
+        datetime.now(UTC) + timedelta(minutes=10),
+        OBSERVED_AT,
+    )
+
+    second_run = storage.start_fetch_run(source.id)
+    summary = storage.record_success(
+        source,
+        second_run,
+        200,
+        ValidatedBatch(
+            candidates=(
+                HeadlineCandidate(
+                    title="Relocated headline",
+                    url="https://example.com/new",
+                    external_id="story-1",
+                    position=2,
+                ),
+                HeadlineCandidate(
+                    title="Stale alias headline",
+                    url="https://example.com/old",
+                    position=1,
+                ),
+            ),
+            rejected_count=0,
+        ),
+        None,
+        None,
+        datetime.now(UTC) + timedelta(minutes=10),
+        OBSERVED_AT + timedelta(minutes=5),
+    )
+
+    rows = storage.latest_snapshot_headlines()
+    runs = storage.recent_fetch_runs()
+    changes = storage.changes_after(0)
+    with sqlite3.connect(tmp_path / "parallax.db") as connection:
+        snapshot_count = connection.execute("SELECT COUNT(*) FROM snapshots").fetchone()
+        entry_count = connection.execute(
+            "SELECT COUNT(*) FROM snapshot_entries"
+        ).fetchone()
+        versions = connection.execute(
+            "SELECT title FROM item_versions ORDER BY id"
+        ).fetchall()
+    storage.close()
+
+    assert summary.item_count == 1
+    assert summary.new_item_count == 0
+    assert summary.new_version_count == 1
+    assert runs[0].status == "success"
+    assert runs[0].item_count == 1
+    assert snapshot_count == (2,)
+    assert entry_count == (2,)
+    assert [row.title for row in rows] == ["Relocated headline"]
+    assert [row.position for row in rows] == [2]
+    assert [row.url for row in rows] == ["https://example.com/new"]
+    assert versions == [("Original headline",), ("Relocated headline",)]
+    assert [event.event_type for event in changes] == [
+        "item_created",
+        "headline_version_created",
+    ]
+
+
+def test_two_recorded_aliases_collapse_into_one_snapshot_entry(
+    tmp_path: Path,
+) -> None:
+    storage = Storage(tmp_path / "parallax.db")
+    storage.initialize()
+    source = _source()
+    storage.sync_sources([source])
+
+    for index, url in enumerate(("https://example.com/old", "https://example.com/new")):
+        run_id = storage.start_fetch_run(source.id)
+        storage.record_success(
+            source,
+            run_id,
+            200,
+            ValidatedBatch(
+                candidates=(
+                    HeadlineCandidate(
+                        title="Headline",
+                        url=url,
+                        external_id="story-1",
+                        position=index + 1,
+                    ),
+                ),
+                rejected_count=0,
+            ),
+            None,
+            None,
+            datetime.now(UTC) + timedelta(minutes=10),
+            OBSERVED_AT + timedelta(minutes=index),
+        )
+
+    run_id = storage.start_fetch_run(source.id)
+    summary = storage.record_success(
+        source,
+        run_id,
+        200,
+        ValidatedBatch(
+            candidates=(
+                HeadlineCandidate(
+                    title="First alias",
+                    url="https://example.com/old",
+                    position=1,
+                ),
+                HeadlineCandidate(
+                    title="Second alias",
+                    url="https://example.com/new",
+                    position=2,
+                ),
+            ),
+            rejected_count=0,
+        ),
+        None,
+        None,
+        datetime.now(UTC) + timedelta(minutes=10),
+        OBSERVED_AT + timedelta(minutes=5),
+    )
+
+    rows = storage.latest_snapshot_headlines()
+    storage.close()
+
+    assert summary.item_count == 1
+    assert summary.new_item_count == 0
+    assert summary.new_version_count == 1
+    assert len(rows) == 1
+    assert rows[0].title == "First alias"
+    assert rows[0].position == 1
+
+
 def test_browse_views_use_explicit_surfaces(tmp_path: Path) -> None:
     storage = Storage(tmp_path / "parallax.db")
     storage.initialize()

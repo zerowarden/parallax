@@ -77,6 +77,23 @@ class FetchRunRow:
     error_message: str | None
 
 
+@dataclass(frozen=True, slots=True)
+class _ResolvedObservation:
+    """One accepted candidate after persistent identity resolution.
+
+    Several accepted candidates can resolve to the same persistent item, for
+    example when one carries an authoritative external ID and another arrives
+    through a previously recorded URL alias. The first candidate in batch order
+    is the representative: it supplies the snapshot position, item version, and
+    metrics. Later candidates are collapsed during storage and contribute no
+    versions, observations, or snapshot entries.
+    """
+
+    candidate: HeadlineCandidate
+    item_id: int
+    version_id: int
+
+
 class Storage:
     def __init__(self, database_path: Path) -> None:
         self.database_path = database_path
@@ -446,17 +463,13 @@ class Storage:
             )
             snapshot_id = _lastrowid(snapshot_cursor)
 
-            new_items, new_versions, stored = self._store_candidates(
+            new_items, new_versions, resolved = self._store_candidates(
                 source,
                 batch,
                 seen_at=observed,
                 committed_at=now,
             )
-            for candidate, (item_id, version_id) in zip(
-                batch.candidates,
-                stored,
-                strict=True,
-            ):
+            for observation in resolved:
                 self._connection.execute(
                     """
                     INSERT INTO snapshot_entries(
@@ -466,10 +479,13 @@ class Storage:
                     """,
                     (
                         snapshot_id,
-                        candidate.position,
-                        item_id,
-                        version_id,
-                        json.dumps(candidate.metrics, ensure_ascii=False),
+                        observation.candidate.position,
+                        observation.item_id,
+                        observation.version_id,
+                        json.dumps(
+                            observation.candidate.metrics,
+                            ensure_ascii=False,
+                        ),
                     ),
                 )
 
@@ -491,7 +507,7 @@ class Storage:
                 (
                     now,
                     http_status,
-                    len(batch.candidates),
+                    len(resolved),
                     new_items,
                     new_versions,
                     batch.rejected_count,
@@ -514,7 +530,7 @@ class Storage:
             "new_items=%s new_versions=%s rejected=%s",
             source.id,
             fetch_run_id,
-            len(batch.candidates),
+            len(resolved),
             new_items,
             new_versions,
             batch.rejected_count,
@@ -523,7 +539,7 @@ class Storage:
             source_id=source.id,
             fetch_run_id=fetch_run_id,
             status="success",
-            item_count=len(batch.candidates),
+            item_count=len(resolved),
             new_item_count=new_items,
             new_version_count=new_versions,
             rejected_count=batch.rejected_count,
@@ -542,7 +558,7 @@ class Storage:
         """
         now = _iso_now()
         with self.transaction():
-            new_items, new_versions, _ = self._store_candidates(
+            new_items, new_versions, resolved = self._store_candidates(
                 source,
                 batch,
                 seen_at=now,
@@ -562,7 +578,7 @@ class Storage:
                 """,
                 (
                     now,
-                    len(batch.candidates),
+                    len(resolved),
                     new_items,
                     new_versions,
                     batch.rejected_count,
@@ -576,7 +592,7 @@ class Storage:
             "new_items=%s new_versions=%s rejected=%s",
             source.id,
             fetch_run_id,
-            len(batch.candidates),
+            len(resolved),
             new_items,
             new_versions,
             batch.rejected_count,
@@ -585,7 +601,7 @@ class Storage:
             source_id=source.id,
             fetch_run_id=fetch_run_id,
             status="history",
-            item_count=len(batch.candidates),
+            item_count=len(resolved),
             new_item_count=new_items,
             new_version_count=new_versions,
             rejected_count=batch.rejected_count,
@@ -1051,12 +1067,31 @@ class Storage:
         *,
         seen_at: str,
         committed_at: str,
-    ) -> tuple[int, int, tuple[tuple[int, int], ...]]:
+    ) -> tuple[int, int, tuple[_ResolvedObservation, ...]]:
+        """Persist one validated batch as unique resolved observations.
+
+        Identity resolution runs for every accepted candidate, so URL aliases
+        keep being learned even for candidates that collapse. The first
+        candidate that resolves to an item is its representative and the only
+        one that writes item fields, an observation, a version, and change
+        events; later candidates resolving to the same item are collapsed.
+        Counts derived here describe the resolved set, not the accepted list.
+        """
         new_items = 0
         new_versions = 0
-        stored: list[tuple[int, int]] = []
+        resolved: dict[int, _ResolvedObservation] = {}
         for candidate in batch.candidates:
-            item_id, item_is_new = self._upsert_item(source, candidate, seen_at)
+            item_id, item_is_new = self._resolve_item(source, candidate, seen_at)
+            if item_id in resolved:
+                LOGGER.warning(
+                    "operation=candidate_collapsed source_id=%s item_id=%s title=%r",
+                    source.id,
+                    item_id,
+                    candidate.title[:120],
+                )
+                continue
+            if not item_is_new:
+                self._refresh_item(candidate, item_id, seen_at)
             observation_is_new = self._upsert_observation(
                 source, item_id, candidate, seen_at
             )
@@ -1093,23 +1128,32 @@ class Storage:
                     )
             if version_is_new:
                 new_versions += 1
-            stored.append((item_id, version_id))
-        return new_items, new_versions, tuple(stored)
+            resolved[item_id] = _ResolvedObservation(
+                candidate=candidate,
+                item_id=item_id,
+                version_id=version_id,
+            )
+        return new_items, new_versions, tuple(resolved.values())
 
-    def _upsert_item(
+    def _resolve_item(
         self,
         source: Source,
         candidate: HeadlineCandidate,
         seen_at: str,
     ) -> tuple[int, bool]:
+        """Resolve one candidate to a persistent item, creating it when new.
+
+        Resolution may upgrade a URL-only item to an authoritative external
+        identity in place and records the candidate URL as an alias of the
+        resolved item. Observation metadata is applied separately by
+        ``_refresh_item`` so only the representative candidate updates a
+        pre-existing item.
+        """
         primary_key, url_key = identity_keys(
             candidate,
             provider_id=source.provider_id,
         )
-        external_id = candidate.external_id.strip() if candidate.external_id else None
-        if not external_id:
-            external_id = None
-        canonical_url = canonicalize_url(candidate.url)
+        external_id = _external_id(candidate)
         existing = self._connection.execute(
             "SELECT id FROM items WHERE identity_key = ?",
             (primary_key,),
@@ -1145,35 +1189,50 @@ class Storage:
                     "SELECT id FROM items WHERE id = ?",
                     (matches[0]["item_id"],),
                 ).fetchone()
-        published = _iso(candidate.published_at) if candidate.published_at else None
 
-        if existing is None:
-            cursor = self._connection.execute(
-                """
-                INSERT INTO items(
-                    identity_key, external_id, original_url, canonical_url,
-                    item_kind, entity_kind, item_variant, published_at,
-                    raw_published_at, first_seen_at, last_seen_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    primary_key,
-                    external_id,
-                    candidate.url.strip(),
-                    canonical_url,
-                    source.item_kind,
-                    source.entity_kind,
-                    source.item_variant,
-                    published,
-                    candidate.raw_published_at,
-                    seen_at,
-                    seen_at,
-                ),
-            )
-            item_id = _lastrowid(cursor)
+        if existing is not None:
+            item_id = int(existing["id"])
             self._record_url_identity(item_id, url_key)
-            return item_id, True
+            return item_id, False
 
+        canonical_url = canonicalize_url(candidate.url)
+        published = _iso(candidate.published_at) if candidate.published_at else None
+        cursor = self._connection.execute(
+            """
+            INSERT INTO items(
+                identity_key, external_id, original_url, canonical_url,
+                item_kind, entity_kind, item_variant, published_at,
+                raw_published_at, first_seen_at, last_seen_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                primary_key,
+                external_id,
+                candidate.url.strip(),
+                canonical_url,
+                source.item_kind,
+                source.entity_kind,
+                source.item_variant,
+                published,
+                candidate.raw_published_at,
+                seen_at,
+                seen_at,
+            ),
+        )
+        item_id = _lastrowid(cursor)
+        self._record_url_identity(item_id, url_key)
+        return item_id, True
+
+    def _refresh_item(
+        self,
+        candidate: HeadlineCandidate,
+        item_id: int,
+        seen_at: str,
+    ) -> None:
+        """Apply one representative observation to an existing item."""
+        external_id = _external_id(candidate)
+        canonical_url = canonicalize_url(candidate.url)
+        published = _iso(candidate.published_at) if candidate.published_at else None
         self._connection.execute(
             """
             UPDATE items SET
@@ -1202,12 +1261,9 @@ class Storage:
                 candidate.raw_published_at,
                 seen_at,
                 seen_at,
-                existing["id"],
+                item_id,
             ),
         )
-        item_id = int(existing["id"])
-        self._record_url_identity(item_id, url_key)
-        return item_id, False
 
     def _record_url_identity(self, item_id: int, identity_key: str) -> None:
         self._connection.execute(
@@ -1554,3 +1610,8 @@ def _lastrowid(cursor: sqlite3.Cursor) -> int:
     if rowid is None:
         raise RuntimeError("INSERT did not produce a rowid")
     return rowid
+
+
+def _external_id(candidate: HeadlineCandidate) -> str | None:
+    external_id = candidate.external_id.strip() if candidate.external_id else None
+    return external_id or None
