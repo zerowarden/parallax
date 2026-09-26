@@ -6,6 +6,7 @@ from parallax.adapters.common.parsing import (
     parse_china_timestamp,
     require_list,
     require_mapping,
+    scalar_text,
     text,
 )
 from parallax.config import Source
@@ -53,12 +54,12 @@ class TencentHotAdapter:
                 continue
             link_info = item.get("link_info")
             link_url = text(link_info.get("url")) if isinstance(link_info, dict) else ""
-            raw_published = text(item.get("publish_time"))
+            raw_published = scalar_text(item.get("publish_time"))
             candidates.append(
                 HeadlineCandidate(
                     title=text(item.get("title")),
                     url=link_url,
-                    external_id=text(item.get("id")) or None,
+                    external_id=scalar_text(item.get("id")) or None,
                     published_at=parse_china_timestamp(raw_published),
                     raw_published_at=raw_published or None,
                     position=position,

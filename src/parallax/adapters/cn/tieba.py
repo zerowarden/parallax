@@ -8,6 +8,7 @@ from parallax.adapters.common.parsing import (
     decode_json_object,
     require_list,
     require_mapping,
+    scalar_text,
     text,
 )
 from parallax.config import Source
@@ -52,7 +53,7 @@ class TiebaHotAdapter:
         for entry in entries:
             if not isinstance(entry, dict):
                 continue
-            external_id = text(entry.get("topic_id"))
+            external_id = scalar_text(entry.get("topic_id"))
             title = text(entry.get("topic_name"))
             url = html.unescape(text(entry.get("topic_url")))
             if not external_id or not title or not url:
@@ -61,7 +62,7 @@ class TiebaHotAdapter:
             discuss_count = entry.get("discuss_num")
             if isinstance(discuss_count, int):
                 metrics["discuss_count"] = discuss_count
-            raw_published = text(entry.get("create_time"))
+            raw_published = scalar_text(entry.get("create_time"))
             candidates.append(
                 HeadlineCandidate(
                     title=title,

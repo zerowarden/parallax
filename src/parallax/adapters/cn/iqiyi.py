@@ -3,7 +3,12 @@ from __future__ import annotations
 from typing import Any
 
 from parallax.adapters.common.http import json_request
-from parallax.adapters.common.parsing import decode_json_object, require_list, text
+from parallax.adapters.common.parsing import (
+    decode_json_object,
+    require_list,
+    scalar_text,
+    text,
+)
 from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
@@ -84,7 +89,7 @@ class IqiyiHotRanklistAdapter:
                 HeadlineCandidate(
                     title=text(entry.get("title")),
                     url=text(entry.get("page_url")),
-                    external_id=text(entry.get("entity_id")) or None,
+                    external_id=scalar_text(entry.get("entity_id")) or None,
                     position=len(candidates) + 1,
                     metrics=metrics,
                 )

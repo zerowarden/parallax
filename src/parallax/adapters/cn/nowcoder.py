@@ -3,7 +3,12 @@ from __future__ import annotations
 from typing import Any
 
 from parallax.adapters.common.http import json_request
-from parallax.adapters.common.parsing import decode_json_object, require_list, text
+from parallax.adapters.common.parsing import (
+    decode_json_object,
+    require_list,
+    scalar_text,
+    text,
+)
 from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
@@ -47,7 +52,7 @@ class NowcoderHotAdapter:
             if not isinstance(entry, dict):
                 continue
             entry_type = entry.get("type")
-            entry_id = text(entry.get("id"))
+            entry_id = scalar_text(entry.get("id"))
             uuid = text(entry.get("uuid"))
             if entry_type == FEED_DETAIL_TYPE and uuid:
                 external_id = uuid

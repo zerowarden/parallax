@@ -47,11 +47,11 @@ def _headline_row(
     )
 
 
-class _Registry:
-    def enabled(self) -> list[Source]:
+class _Catalog:
+    def enabled_sources(self) -> list[Source]:
         return [_source()]
 
-    def get(self, source_id: str) -> Source:
+    def source(self, source_id: str) -> Source:
         return _source()
 
 
@@ -71,7 +71,7 @@ class _Storage:
 
 class _ShowRuntime:
     def __init__(self, rows: list[HeadlineRow]) -> None:
-        self.registry = _Registry()
+        self.catalog = _Catalog()
         self.storage = _Storage(rows)
 
     def __enter__(self) -> _ShowRuntime:
@@ -95,7 +95,7 @@ class _Ingestion:
 
 class _Runtime:
     def __init__(self, result: IngestionBatchResult) -> None:
-        self.registry = _Registry()
+        self.catalog = _Catalog()
         self.ingestion = _Ingestion(result)
 
     def __enter__(self) -> _Runtime:
@@ -264,7 +264,7 @@ class _WebApp:
 
 class _WebRuntime:
     def __init__(self, storage: object) -> None:
-        self.registry = _Registry()
+        self.catalog = _Catalog()
         self.storage = storage
 
     def __enter__(self) -> _WebRuntime:
@@ -287,7 +287,7 @@ def test_web_serves_local_reader_with_defaults(
         return application
 
     monkeypatch.setattr("parallax.cli._archive", lambda config: runtime)
-    monkeypatch.setattr("parallax.cli.create_app", fake_create_app)
+    monkeypatch.setattr("parallax.web.create_app", fake_create_app)
 
     result = CliRunner().invoke(app, ["web"])
 
@@ -305,7 +305,7 @@ def test_web_forwards_host_and_port(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr("parallax.cli._archive", lambda config: runtime)
     monkeypatch.setattr(
-        "parallax.cli.create_app",
+        "parallax.web.create_app",
         lambda storage, sources: application,
     )
 
@@ -323,7 +323,7 @@ def test_web_quiets_werkzeug_access_logs(monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setattr(werkzeug_logger, "level", logging.INFO)
     monkeypatch.setattr("parallax.cli._archive", lambda config: runtime)
     monkeypatch.setattr(
-        "parallax.cli.create_app",
+        "parallax.web.create_app",
         lambda storage, sources: application,
     )
 
@@ -445,3 +445,28 @@ def test_config_source_rejects_unknown_ids(tmp_path: Path) -> None:
 
     assert result.exit_code == 1
     assert "Unknown source" in result.output
+
+
+def test_cli_help_does_not_import_browser_or_load_timezone_data() -> None:
+    import subprocess
+    import sys
+
+    script = """
+import sys
+import zoneinfo
+from typer.testing import CliRunner
+
+def missing_timezone(*args, **kwargs):
+    raise zoneinfo.ZoneInfoNotFoundError("No timezone data")
+
+zoneinfo.ZoneInfo = missing_timezone
+from parallax.cli import app
+result = CliRunner().invoke(app, ["--help"])
+assert result.exit_code == 0, result.output
+assert "parallax.web" not in sys.modules
+assert "flask" not in sys.modules
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0, result.stderr

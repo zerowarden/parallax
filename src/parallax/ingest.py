@@ -12,11 +12,11 @@ import httpx
 from parallax.adapters.base import (
     AdapterLookup,
     HistoricalAdapter,
+    HistoryPlan,
     MultiRequestAdapter,
     SourceAdapter,
     SteppedAdapter,
 )
-from parallax.adapters.common.options import DEFAULT_HISTORY_MAX_ITEMS, option_int
 from parallax.adapters.execution import (
     raise_for_status,
     run_adapter_refresh,
@@ -30,7 +30,6 @@ from parallax.domain import (
     IngestionFailure,
     IngestionSummary,
     ParsedBatch,
-    RequestSpec,
     StreamState,
     ValidatedBatch,
 )
@@ -211,8 +210,8 @@ class IngestionService:
                 raise ValueError("history timestamps must be timezone-aware")
             until = datetime.now(UTC)
             if isinstance(adapter, HistoricalAdapter):
-                requests = adapter.build_history_requests(source, since)
-                return self._prepare_history(source, adapter, requests, since, until)
+                plan = adapter.build_history_plan(source, since)
+                return self._prepare_history(source, adapter, plan, since, until)
             return _PreparedHistory(
                 ValidatedBatch((), 0),
                 HistoryOutcome(
@@ -268,19 +267,19 @@ class IngestionService:
         self,
         source: Source,
         adapter: HistoricalAdapter,
-        requests: tuple[RequestSpec, ...],
+        plan: HistoryPlan,
         since: datetime,
         until: datetime,
     ) -> _PreparedHistory:
         state = StreamState(source_id=source.id)
-        budget = option_int(source, "history_max_items", DEFAULT_HISTORY_MAX_ITEMS)
+        budget = plan.max_items
         accepted: dict[str, HeadlineCandidate] = {}
         warnings: list[str] = []
         rejected = 0
         pages = 0
         reason = "page_budget"
         status: HistoryStatus = "truncated"
-        for request in requests:
+        for request in plan.requests:
             response = self._transport.request(request, source, state)
             pages += 1
             raise_for_status(response)

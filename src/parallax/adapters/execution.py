@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -93,17 +92,17 @@ def _run_stepped(
     transport: Transport,
 ) -> AdapterRefresh:
     state = StreamState(source_id=source.id)
-    context: Mapping[str, object] = {}
     step = adapter.first_step(source)
+    if isinstance(step, CompleteStep):
+        raise ValueError(f"Adapter for {source.id!r} must make an HTTP observation")
     responses: list[HttpResponse] = []
     for _ in range(MAX_ADAPTER_STEPS):
-        if isinstance(step, CompleteStep):
-            return AdapterRefresh(responses=tuple(responses), batch=step.batch)
-        context = step.context
         response = transport.request(step.request, source, state)
         raise_for_status(response)
         responses.append(response)
-        step = adapter.next_step(source, response, context)
+        step = adapter.next_step(source, response, step.context)
+        if isinstance(step, CompleteStep):
+            return AdapterRefresh(responses=tuple(responses), batch=step.batch)
     raise RuntimeError(f"Adapter for {source.id!r} exceeded {MAX_ADAPTER_STEPS} steps")
 
 

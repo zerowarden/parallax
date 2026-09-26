@@ -1347,3 +1347,64 @@ def test_rollback_failure_does_not_replace_original_error(tmp_path: Path) -> Non
     ):
         pass
     storage.close()
+
+
+@pytest.mark.parametrize("view", ["all", "news", "discover"])
+@pytest.mark.parametrize(
+    "selected_source", [None, "news", "discover", "disabled", "missing"]
+)
+@pytest.mark.parametrize("query", [None, "Shared", "Absent"])
+def test_browse_count_and_rows_share_source_eligibility(
+    tmp_path: Path, view: BrowseView, selected_source: str | None, query: str | None
+) -> None:
+    storage = Storage(tmp_path / "archive.db")
+    storage.initialize()
+    sources = [
+        _source(id="news", surfaces=("news",)),
+        _source(id="discover", surfaces=("discover",)),
+        _source(id="disabled", surfaces=("news", "discover"), enabled=False),
+    ]
+    storage.sync_sources(sources)
+    for source in sources:
+        storage.record_success(
+            source,
+            storage.start_fetch_run(source.id),
+            200,
+            ValidatedBatch(
+                (
+                    HeadlineCandidate("Shared title", "https://example.com/shared"),
+                    HeadlineCandidate(source.id, f"https://example.com/{source.id}"),
+                ),
+                0,
+            ),
+            None,
+            None,
+            OBSERVED_AT,
+            OBSERVED_AT,
+        )
+    since, until = OBSERVED_AT - timedelta(days=1), OBSERVED_AT + timedelta(days=1)
+    rows = storage.browse_headlines(
+        view=view,
+        since=since,
+        until=until,
+        source_id=selected_source,
+        query=query,
+        limit=100,
+        offset=0,
+    )
+    count = storage.count_browse_headlines(
+        view=view, since=since, until=until, source_id=selected_source, query=query
+    )
+    eligible = {
+        source.id
+        for source in sources
+        if source.enabled
+        and (view == "all" or view in source.surfaces)
+        and (selected_source is None or source.id == selected_source)
+    }
+    expected = 0
+    if eligible and query != "Absent":
+        expected = 1 if query == "Shared" else len(eligible) + 1
+    assert count == len(rows) == expected
+    assert {row.source_id for row in rows} <= eligible
+    storage.close()

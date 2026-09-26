@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from parallax.config.catalog import ResolvedConfig
+from parallax.config.catalog import ResolvedConfig, SourceCatalog
 from parallax.config.loader import SCHEMA_VERSION, CatalogError, load_catalog
 from parallax.config.models import (
     AppConfig,
@@ -34,6 +34,7 @@ __all__ = [
     "ResolvedConfig",
     "SchedulerConfig",
     "Source",
+    "SourceCatalog",
     "SourceDefinition",
     "ValidationConfig",
     "load_catalog",

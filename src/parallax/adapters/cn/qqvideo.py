@@ -7,6 +7,7 @@ from parallax.adapters.common.parsing import (
     decode_json_object,
     require_list,
     require_mapping,
+    scalar_text,
     text,
 )
 from parallax.config import Source
@@ -119,7 +120,7 @@ class QqvideoHotSearchAdapter:
         for item in cards:
             if not isinstance(item, dict):
                 continue
-            cover_id = text(item.get("id"))
+            cover_id = scalar_text(item.get("id"))
             params = item.get("params")
             if not cover_id or not isinstance(params, dict):
                 continue
@@ -131,7 +132,7 @@ class QqvideoHotSearchAdapter:
             if subtitle:
                 metrics["subtitle"] = subtitle
             raw_published = text(params.get("publish_date"))
-            rank = text(params.get("rank_num"))
+            rank = scalar_text(params.get("rank_num"))
             candidates.append(
                 HeadlineCandidate(
                     title=title,

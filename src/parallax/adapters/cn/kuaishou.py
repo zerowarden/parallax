@@ -9,6 +9,7 @@ from parallax.adapters.common.parsing import (
     decode_html,
     require_list,
     require_mapping,
+    scalar_text,
     text,
 )
 from parallax.config import Source
@@ -67,7 +68,7 @@ class KuaishouHotAdapter:
             "Kuaishou APOLLO state does not contain the hot rank",
         )
         rank = require_mapping(
-            client.get(text(rank_ref.get("id"))),
+            client.get(scalar_text(rank_ref.get("id"))),
             "Kuaishou hot-rank node is missing",
         )
         items = require_list(
@@ -80,7 +81,7 @@ class KuaishouHotAdapter:
         for item in items:
             if not isinstance(item, dict):
                 continue
-            item_id = text(item.get("id"))
+            item_id = scalar_text(item.get("id"))
             node = client.get(item_id)
             if not isinstance(node, dict) or node.get("tagType") == PINNED_TAG:
                 continue

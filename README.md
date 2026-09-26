@@ -43,6 +43,10 @@ views, Today / 3 / 7 / 30 day filters, source filtering, headline search, and
 pagination. Date filtering is based on when Parallax first observed an item,
 not the publisher's publication time.
 
+Calendar windows use Asia/Hong_Kong. The bundled `tzdata` dependency supplies
+timezone rules when the operating system has no IANA database. Browser setup is
+loaded only for the `web` command.
+
 All / News / Discover placement is explicit source configuration, not inferred
 from item or stream kinds. Items observed through several channels are
 deduplicated at item level before rendering.
@@ -150,6 +154,9 @@ omitted validators. Only the hash is persisted, not resolved credentials.
 RSS/Atom parsing uses `defusedxml` with DTD, entity, and external-reference
 prohibitions enabled; transport response-size limits remain independent.
 
+Adapters require strings for headline text; structured values fail parsing.
+Fields such as numeric IDs, counts, and timestamps opt into scalar conversion.
+
 ## Development
 
 ```bash
@@ -167,6 +174,13 @@ Live-source checks are opt-in:
 ```bash
 uv run pytest -m live
 ```
+
+Live checks use the same adapter executor as collection. Stepped adapters may
+make at most five requests and must observe at least one HTTP response; completion
+after the fifth request is valid, while completion before any request cannot
+supply an observation timestamp. Adapter-owned option validators serve both
+catalog linting and history planning; ingestion consumes the validated budgets.
+Resolved configuration and archive readers share the `SourceCatalog` lookup API.
 
 ## License
 MIT

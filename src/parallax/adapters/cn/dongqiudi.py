@@ -7,6 +7,7 @@ from parallax.adapters.common.parsing import (
     decode_json_object,
     parse_china_timestamp,
     require_list,
+    scalar_text,
     text,
 )
 from parallax.config import Source
@@ -42,7 +43,7 @@ class DongqiudiNewsAdapter:
         for position, article in enumerate(articles[:max_items], start=1):
             if not isinstance(article, dict):
                 continue
-            article_id = text(article.get("id"))
+            article_id = scalar_text(article.get("id"))
             url = text(article.get("share")) or text(article.get("url"))
             if not url and article_id:
                 url = ARTICLE_URL_TEMPLATE.format(article_id=article_id)

@@ -5,7 +5,12 @@ import re
 from typing import Any
 
 from parallax.adapters.common.http import json_request
-from parallax.adapters.common.parsing import parse_china_timestamp, require_list, text
+from parallax.adapters.common.parsing import (
+    parse_china_timestamp,
+    require_list,
+    scalar_text,
+    text,
+)
 from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
@@ -55,7 +60,7 @@ class Jin10FlashAdapter:
                 continue
             headline = HEADLINE_PREFIX.match(flash_text)
             title = headline.group(1).strip() if headline else flash_text
-            flash_id = text(entry.get("id"))
+            flash_id = scalar_text(entry.get("id"))
             raw_published = text(entry.get("time"))
             metrics: dict[str, Any] = {}
             if entry.get("important") == 1:

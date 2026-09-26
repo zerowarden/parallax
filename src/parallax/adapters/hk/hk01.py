@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from parallax.adapters.common.http import json_request
-from parallax.adapters.common.parsing import decode_json_object, text
+from parallax.adapters.common.parsing import decode_json_object, scalar_text, text
 from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
@@ -36,7 +36,7 @@ class Hk01LatestAdapter:
             if not isinstance(data, dict):
                 continue
 
-            article_id = text(data.get("articleId"))
+            article_id = scalar_text(data.get("articleId"))
             raw_published = data.get("publishTime")
             tags = data.get("tags")
             authors = data.get("authors")

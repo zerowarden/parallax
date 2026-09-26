@@ -10,7 +10,12 @@ from typing import Any
 from selectolax.parser import HTMLParser
 
 from parallax.adapters.common.http import json_request
-from parallax.adapters.common.parsing import decode_json_object, require_list, text
+from parallax.adapters.common.parsing import (
+    decode_json_object,
+    require_list,
+    scalar_text,
+    text,
+)
 from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
@@ -82,7 +87,7 @@ class CoolapkHotAdapter:
         for entry in entries:
             if not isinstance(entry, dict):
                 continue
-            entry_id = text(entry.get("id"))
+            entry_id = scalar_text(entry.get("id"))
             if not entry_id:
                 continue
             title = text(entry.get("editor_title")) or _message_title(
@@ -96,7 +101,7 @@ class CoolapkHotAdapter:
                 heat = text(target_row.get("subTitle"))
                 if heat:
                     metrics["heat"] = heat
-            raw_published = text(entry.get("dateline"))
+            raw_published = scalar_text(entry.get("dateline"))
             article_path = text(entry.get("url"))
             candidates.append(
                 HeadlineCandidate(

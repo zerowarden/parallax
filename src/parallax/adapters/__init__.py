@@ -22,6 +22,9 @@ from parallax.adapters.cn.fastbull import FastbullExpressAdapter, FastbullNewsAd
 from parallax.adapters.cn.gelonghui import GelonghuiNewsAdapter
 from parallax.adapters.cn.github import GithubTrendingAdapter
 from parallax.adapters.cn.hackernews import HackerNewsHotAdapter
+from parallax.adapters.cn.hackernews import (
+    validate_options as validate_hackernews_options,
+)
 from parallax.adapters.cn.hupu import HupuHotAdapter
 from parallax.adapters.cn.ifeng import IfengHotAdapter
 from parallax.adapters.cn.iqiyi import IqiyiHotRanklistAdapter
@@ -51,7 +54,7 @@ from parallax.adapters.cn.weibo import WeiboHotAdapter
 from parallax.adapters.cn.xueqiu import XueqiuHotstockAdapter
 from parallax.adapters.cn.zaobao import ZaobaoRealtimeAdapter
 from parallax.adapters.cn.zhihu import ZhihuHotAdapter
-from parallax.adapters.common.options import option_int
+from parallax.adapters.common.options import positive_integer_options
 from parallax.adapters.common.rss import RssAdapter
 from parallax.adapters.hk.am730 import Am730NewsAdapter
 from parallax.adapters.hk.hk01 import Hk01LatestAdapter
@@ -59,17 +62,16 @@ from parallax.adapters.hk.hkej import HkejInstantAdapter
 from parallax.adapters.hk.hket import HketRssAdapter
 from parallax.adapters.hk.mingpao import MingpaoRssAdapter
 from parallax.adapters.hk.now_news import NowNewsAdapter
+from parallax.adapters.hk.now_news import validate_options as validate_now_news_options
 from parallax.adapters.hk.oncc import OnccNewsAdapter
 from parallax.adapters.hk.thestandard import TheStandardNewsAdapter
 from parallax.adapters.hk.tkww import TkwwNewsAdapter
 from parallax.adapters.hk.wenweipo import WenweipoNewsAdapter
 from parallax.config import Source
 
-ADAPTER_OPTIONS = {
-    "now_news": frozenset(
-        {"history_max_pages", "history_max_items", "history_page_size"}
-    ),
-    "hackernews_hot": frozenset({"history_max_items"}),
+_OPTION_VALIDATORS = {
+    "now_news": validate_now_news_options,
+    "hackernews_hot": validate_hackernews_options,
 }
 
 
@@ -146,13 +148,8 @@ class AdapterRegistry:
 
     def validate_source(self, source: Source) -> None:
         self.get(source.endpoint.adapter)
-        allowed = ADAPTER_OPTIONS.get(source.endpoint.adapter, frozenset())
-        unknown = sorted(set(source.endpoint.options) - allowed)
-        if unknown:
-            joined = ", ".join(unknown)
-            raise ValueError(
-                f"Unknown options for adapter {source.endpoint.adapter!r}: {joined}"
-            )
-        for key in allowed:
-            if key in source.endpoint.options:
-                option_int(source, key, 1)
+        validate = _OPTION_VALIDATORS.get(source.endpoint.adapter)
+        if validate is None:
+            positive_integer_options(source, {})
+        else:
+            validate(source)

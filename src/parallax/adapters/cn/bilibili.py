@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
+from dataclasses import replace
 from typing import Any
 from urllib.parse import quote
 
@@ -8,6 +10,7 @@ from parallax.adapters.common.parsing import (
     decode_json_object,
     require_list,
     require_mapping,
+    scalar_text,
     text,
 )
 from parallax.config import Source
@@ -37,9 +40,7 @@ class BilibiliHotSearchAdapter:
 
     def parse(self, source: Source, response: HttpResponse) -> ParsedBatch:
         payload = decode_json_object(response.content, label="Bilibili")
-        code = payload.get("code")
-        if code != 0:
-            raise ValueError(f"Unexpected Bilibili code: {code!r}")
+        _require_ok(payload)
         items = require_list(
             payload.get("list"),
             "Bilibili response does not contain a list",
@@ -89,25 +90,15 @@ class BilibiliHotVideoAdapter:
         )
 
     def parse(self, source: Source, response: HttpResponse) -> ParsedBatch:
-        payload = decode_json_object(response.content, label="Bilibili")
-        _require_ok(payload)
-        data = require_mapping(
-            payload.get("data"),
-            "Bilibili response does not contain a data object",
-        )
-        items = require_list(
-            data.get("list"),
-            "Bilibili response does not contain a list",
-        )
+        items = _video_items(response.content)
 
         max_items = source.max_items
         candidates: list[HeadlineCandidate] = []
         for item in items:
             if not isinstance(item, dict):
                 continue
-            bvid = text(item.get("bvid"))
-            title = text(item.get("title"))
-            if not bvid or not title:
+            candidate = _video_candidate(item, position=len(candidates) + 1)
+            if candidate is None:
                 continue
             metrics: dict[str, Any] = {}
             owner = item.get("owner")
@@ -121,15 +112,12 @@ class BilibiliHotVideoAdapter:
                     value = stat.get(key)
                     if isinstance(value, int):
                         metrics[key] = value
-            raw_published = text(item.get("pubdate"))
+            raw_published = scalar_text(item.get("pubdate"))
             candidates.append(
-                HeadlineCandidate(
-                    title=title,
-                    url=VIDEO_URL_TEMPLATE.format(bvid=bvid),
-                    external_id=bvid,
+                replace(
+                    candidate,
                     published_at=parse_timestamp(raw_published or None),
                     raw_published_at=raw_published or None,
-                    position=len(candidates) + 1,
                     metrics=metrics,
                 )
             )
@@ -157,25 +145,15 @@ class BilibiliRankingAdapter:
         )
 
     def parse(self, source: Source, response: HttpResponse) -> ParsedBatch:
-        payload = decode_json_object(response.content, label="Bilibili")
-        _require_ok(payload)
-        data = require_mapping(
-            payload.get("data"),
-            "Bilibili response does not contain a data object",
-        )
-        items = require_list(
-            data.get("list"),
-            "Bilibili response does not contain a list",
-        )
+        items = _video_items(response.content)
 
         max_items = source.max_items
         candidates: list[HeadlineCandidate] = []
         for item in items:
             if not isinstance(item, dict):
                 continue
-            bvid = text(item.get("bvid"))
-            title = text(item.get("title"))
-            if not bvid or not title:
+            candidate = _video_candidate(item, position=len(candidates) + 1)
+            if candidate is None:
                 continue
             metrics: dict[str, Any] = {}
             author = text(item.get("author"))
@@ -185,15 +163,7 @@ class BilibiliRankingAdapter:
                 value = item.get(key)
                 if isinstance(value, int):
                     metrics[key] = value
-            candidates.append(
-                HeadlineCandidate(
-                    title=title,
-                    url=VIDEO_URL_TEMPLATE.format(bvid=bvid),
-                    external_id=bvid,
-                    position=len(candidates) + 1,
-                    metrics=metrics,
-                )
-            )
+            candidates.append(replace(candidate, metrics=metrics))
             if len(candidates) >= max_items:
                 break
         if not candidates:
@@ -205,3 +175,27 @@ def _require_ok(payload: dict[str, Any]) -> None:
     code = payload.get("code")
     if code != 0:
         raise ValueError(f"Unexpected Bilibili code: {code!r}")
+
+
+def _video_items(content: bytes) -> list[object]:
+    payload = decode_json_object(content, label="Bilibili")
+    _require_ok(payload)
+    data = require_mapping(
+        payload.get("data"), "Bilibili response does not contain a data object"
+    )
+    return require_list(data.get("list"), "Bilibili response does not contain a list")
+
+
+def _video_candidate(
+    item: Mapping[str, object], *, position: int
+) -> HeadlineCandidate | None:
+    bvid = text(item.get("bvid"))
+    title = text(item.get("title"))
+    if not bvid or not title:
+        return None
+    return HeadlineCandidate(
+        title=title,
+        url=VIDEO_URL_TEMPLATE.format(bvid=bvid),
+        external_id=bvid,
+        position=position,
+    )

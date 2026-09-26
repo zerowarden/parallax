@@ -3,7 +3,12 @@ from __future__ import annotations
 from typing import Any
 
 from parallax.adapters.common.http import json_request
-from parallax.adapters.common.parsing import decode_json_object, require_list, text
+from parallax.adapters.common.parsing import (
+    decode_json_object,
+    require_list,
+    scalar_text,
+    text,
+)
 from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
@@ -39,7 +44,7 @@ class JuejinHotAdapter:
             content = entry.get("content")
             if not isinstance(content, dict):
                 continue
-            content_id = text(content.get("content_id"))
+            content_id = scalar_text(content.get("content_id"))
             metrics: dict[str, Any] = {}
             candidates.append(
                 HeadlineCandidate(

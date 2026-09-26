@@ -5,7 +5,12 @@ from typing import Any
 
 from parallax.adapters.base import AdapterStep, CompleteStep, ContinueStep
 from parallax.adapters.common.http import cookie_header
-from parallax.adapters.common.parsing import decode_json_object, require_list, text
+from parallax.adapters.common.parsing import (
+    decode_json_object,
+    require_list,
+    scalar_text,
+    text,
+)
 from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
@@ -80,7 +85,7 @@ def _parse_hot(source: Source, response: HttpResponse) -> ParsedBatch:
     for entry in entries:
         if not isinstance(entry, dict):
             continue
-        sentence_id = text(entry.get("sentence_id"))
+        sentence_id = scalar_text(entry.get("sentence_id"))
         title = text(entry.get("word"))
         if not sentence_id or not title:
             continue

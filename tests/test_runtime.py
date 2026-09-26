@@ -41,7 +41,7 @@ def test_archive_commands_ignore_broken_catalog_and_do_not_reconcile(
     result = CliRunner().invoke(app, [command, "--config", str(config)])
     assert result.exit_code == 0, result.output
     with ArchiveRuntime.build(config) as reader:
-        assert [source.id for source in reader.registry.enabled()] == ["fixture"]
+        assert [source.id for source in reader.catalog.enabled_sources()] == ["fixture"]
         assert reader.storage.recent_fetch_runs()[0].id == run
         assert reader.storage.recent_fetch_runs()[0].status == "running"
         with pytest.raises(sqlite3.OperationalError, match="readonly"):
@@ -120,5 +120,5 @@ def test_diagnostics_do_not_reconcile_or_recover_runs(tmp_path: Path) -> None:
     with DiagnosticRuntime.build(config):
         pass
     with ArchiveRuntime.build(config) as reader:
-        assert reader.registry.get("fixture").enabled
+        assert reader.catalog.source("fixture").enabled
         assert reader.storage.recent_fetch_runs()[0].status == "running"

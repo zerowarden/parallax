@@ -13,14 +13,8 @@ from parallax.config.models import (
 )
 
 
-class ResolvedConfig(ConfigModel):
-    """Frozen, deterministic catalog after sources resolve."""
-
-    app: AppConfig
-    http: HttpConfig
-    ingestion: IngestionConfig
-    scheduler: SchedulerConfig
-    validation: ValidationConfig
+class SourceCatalog(ConfigModel):
+    """One immutable source lookup API for resolved and archived catalogs."""
 
     sources: tuple[Source, ...]
 
@@ -32,6 +26,16 @@ class ResolvedConfig(ConfigModel):
 
     def enabled_sources(self) -> tuple[Source, ...]:
         return tuple(source for source in self.sources if source.enabled)
+
+
+class ResolvedConfig(SourceCatalog):
+    """Resolved source catalog with the application's operational settings."""
+
+    app: AppConfig
+    http: HttpConfig
+    ingestion: IngestionConfig
+    scheduler: SchedulerConfig
+    validation: ValidationConfig
 
     def resolved_json(self) -> str:
         """Return the complete resolved configuration, including app paths."""

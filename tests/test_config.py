@@ -19,6 +19,7 @@ from parallax.config import (
     IngestionConfig,
     RedirectPolicyConfig,
     Source,
+    SourceCatalog,
     SourceDefinition,
     load_catalog,
 )
@@ -45,6 +46,20 @@ def test_checked_in_catalog_loads_and_uses_known_adapters() -> None:
     registry = AdapterRegistry()
     for source in config.sources:
         registry.validate_source(source)
+
+
+def test_catalog_lookup_keeps_disabled_sources_but_enabled_selection_omits_them() -> (
+    None
+):
+    enabled = make_source(id="enabled")
+    disabled = make_source(id="disabled", enabled=False)
+    catalog = SourceCatalog(sources=(enabled, disabled))
+
+    assert catalog.source("disabled") == disabled
+    assert catalog.enabled_sources() == (enabled,)
+    with pytest.raises(KeyError, match="missing"):
+        catalog.source("missing")
+    assert SourceCatalog(sources=()).enabled_sources() == ()
 
 
 def test_unknown_source_kinds_are_rejected() -> None:

@@ -5,6 +5,7 @@ from parallax.adapters.common.parsing import (
     decode_json_object,
     parse_china_timestamp,
     require_list,
+    scalar_text,
     text,
 )
 from parallax.config import Source
@@ -45,7 +46,7 @@ class IthomeNewsAdapter:
             path = text(entry.get("url"))
             if AD_URL_MARKER in path:
                 continue
-            news_id = text(entry.get("newsid"))
+            news_id = scalar_text(entry.get("newsid"))
             raw_published = text(entry.get("postdate"))
             candidates.append(
                 HeadlineCandidate(

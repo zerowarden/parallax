@@ -118,3 +118,26 @@ def test_title_normalization_preserves_case_punctuation_and_digits() -> None:
 
 def test_title_normalization_does_not_convert_chinese_scripts() -> None:
     assert normalize_title_for_version("中国") != normalize_title_for_version("中國")
+
+
+@pytest.mark.parametrize(
+    "url, expected",
+    [
+        ("https://[::1]/a", "https://[::1]/a"),
+        ("https://[2001:DB8::1]:443/a#fragment", "https://[2001:db8::1]/a"),
+        ("https://[::1]:8443/a", "https://[::1]:8443/a"),
+        ("https://[::1]:0/a", "https://[::1]:0/a"),
+        ("http://example.test:0/a", "http://example.test:0/a"),
+    ],
+)
+def test_identity_and_canonical_urls_preserve_valid_authority(
+    url: str, expected: str
+) -> None:
+    from urllib.parse import urlsplit
+
+    assert normalize_url_for_identity(url) == expected
+    assert canonicalize_url(url) == expected
+    hostname = urlsplit(url).hostname
+    assert hostname is not None
+    assert urlsplit(expected).hostname == hostname.lower()
+    assert normalize_url_for_identity(expected) == expected

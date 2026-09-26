@@ -6,6 +6,7 @@ from parallax.adapters.common.http import json_request
 from parallax.adapters.common.parsing import (
     decode_json_object,
     require_list,
+    scalar_text,
     text,
 )
 from parallax.config import Source
@@ -58,7 +59,7 @@ class SspaiHotAdapter:
         for entry in entries:
             if not isinstance(entry, dict):
                 continue
-            article_id = text(entry.get("id"))
+            article_id = scalar_text(entry.get("id"))
             title = text(entry.get("title"))
             if not article_id or not title:
                 continue
@@ -67,7 +68,7 @@ class SspaiHotAdapter:
                 value = entry.get(key)
                 if isinstance(value, int):
                     metrics[key] = value
-            raw_published = text(entry.get("released_time"))
+            raw_published = scalar_text(entry.get("released_time"))
             candidates.append(
                 HeadlineCandidate(
                     title=title,

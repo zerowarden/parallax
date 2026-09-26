@@ -13,6 +13,7 @@ from parallax.adapters.base import (
     Adapter,
     CompleteStep,
     ContinueStep,
+    HistoryPlan,
 )
 from parallax.adapters.common.http import cookie_header
 from parallax.adapters.execution import MAX_ADAPTER_STEPS
@@ -727,12 +728,14 @@ class HistoryFixtureAdapter:
             )
         )
 
-    def build_history_requests(
+    def build_history_plan(
         self,
         source: Source,
         since: datetime,
-    ) -> tuple[RequestSpec, ...]:
-        return (RequestSpec(method="GET", url="https://example.com/history"),)
+    ) -> HistoryPlan:
+        return HistoryPlan(
+            (RequestSpec(method="GET", url="https://example.com/history"),), 1000
+        )
 
     def parse_history_page(
         self,

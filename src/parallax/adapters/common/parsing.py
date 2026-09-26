@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from datetime import UTC, datetime, timedelta, timezone
 from typing import Any
@@ -57,8 +58,23 @@ def decode_html(
 
 
 def text(value: object) -> str:
-    """Normalize an upstream scalar to trimmed text."""
-    return "" if value is None else str(value).strip()
+    """Read optional upstream text without fabricating wording from other types."""
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise ValueError(f"Expected upstream text, got {type(value).__name__}")
+    return value.strip()
+
+
+def scalar_text(value: object) -> str:
+    """Read a textual or numeric ID, timestamp, or count explicitly as text."""
+    if value is None or isinstance(value, str):
+        return text(value)
+    if isinstance(value, bool):
+        raise ValueError("Expected upstream string or number, got bool")
+    if isinstance(value, int) or isinstance(value, float) and math.isfinite(value):
+        return str(value)
+    raise ValueError(f"Expected upstream string or number, got {type(value).__name__}")
 
 
 def require_mapping(value: object, message: str) -> dict[str, Any]:

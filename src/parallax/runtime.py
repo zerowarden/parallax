@@ -7,12 +7,11 @@ from types import TracebackType
 from typing import Self
 
 from parallax.adapters import AdapterRegistry
-from parallax.config import ResolvedConfig, load_catalog
+from parallax.config import ResolvedConfig, SourceCatalog, load_catalog
 from parallax.config.loader import load_archive_config
 from parallax.diagnostics import DiagnosticService
 from parallax.ingest import IngestionService
 from parallax.logging_setup import configure_logging
-from parallax.registry import SourceRegistry
 from parallax.scheduler import Scheduler
 from parallax.storage import Storage, collector_lock
 from parallax.transport import HttpTransport
@@ -40,7 +39,7 @@ class _OwnedResources:
 
 @dataclass(slots=True)
 class ArchiveRuntime(_OwnedResources):
-    registry: SourceRegistry
+    catalog: SourceCatalog
     storage: Storage
 
     @classmethod
@@ -49,13 +48,13 @@ class ArchiveRuntime(_OwnedResources):
         with ExitStack() as resources:
             storage = Storage(config.database_path, read_only=True)
             resources.callback(storage.close)
-            registry = SourceRegistry.from_sources(storage.sources())
-            return cls(resources.pop_all(), registry, storage)
+            catalog = SourceCatalog(sources=storage.sources())
+            return cls(resources.pop_all(), catalog, storage)
 
 
 @dataclass(slots=True)
 class DiagnosticRuntime(_OwnedResources):
-    registry: SourceRegistry
+    catalog: SourceCatalog
     diagnostics: DiagnosticService
 
     @classmethod
@@ -68,14 +67,12 @@ class DiagnosticRuntime(_OwnedResources):
             diagnostics = DiagnosticService(
                 storage, transport, AdapterRegistry(), BatchValidator(config.validation)
             )
-            registry = SourceRegistry.from_sources(config.sources)
-            return cls(resources.pop_all(), registry, diagnostics)
+            return cls(resources.pop_all(), config, diagnostics)
 
 
 @dataclass(slots=True)
 class Runtime(_OwnedResources):
-    config: ResolvedConfig
-    registry: SourceRegistry
+    catalog: ResolvedConfig
     storage: Storage
     transport: HttpTransport
     ingestion: IngestionService
@@ -89,7 +86,6 @@ class Runtime(_OwnedResources):
         for source in config.sources:
             adapters.validate_source(source)
         configure_logging(config.app.log_level, config.app.log_path)
-        registry = SourceRegistry.from_sources(config.sources)
         with ExitStack() as resources:
             resources.enter_context(collector_lock(config.app.database_path))
             storage = Storage(config.app.database_path)
@@ -105,7 +101,7 @@ class Runtime(_OwnedResources):
                 ingestion_config=config.ingestion,
             )
             scheduler = Scheduler(
-                registry=registry,
+                catalog=config,
                 storage=storage,
                 ingestion=ingestion,
                 config=config.scheduler,
@@ -116,7 +112,6 @@ class Runtime(_OwnedResources):
             return cls(
                 resources.pop_all(),
                 config,
-                registry,
                 storage,
                 transport,
                 ingestion,

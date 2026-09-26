@@ -5,12 +5,17 @@ from datetime import UTC, datetime
 
 from selectolax.parser import HTMLParser, Node
 
+from parallax.adapters.base import HistoryPlan
 from parallax.adapters.common.http import JSON_ACCEPT, html_request
-from parallax.adapters.common.options import DEFAULT_HISTORY_MAX_ITEMS, option_int
+from parallax.adapters.common.options import (
+    DEFAULT_HISTORY_MAX_ITEMS,
+    positive_integer_options,
+)
 from parallax.adapters.common.parsing import (
     decode_html,
     decode_json_object,
     require_list,
+    scalar_text,
     text,
 )
 from parallax.config import Source
@@ -27,6 +32,12 @@ ITEM_URL_TEMPLATE = "https://news.ycombinator.com/item?id={item_id}"
 SEARCH_URL = "https://hn.algolia.com/api/v1/search_by_date"
 MAX_SEARCH_HITS = 100
 _POINTS = re.compile(r"^(\d+)")
+
+
+def validate_options(source: Source) -> dict[str, int]:
+    return positive_integer_options(
+        source, {"history_max_items": DEFAULT_HISTORY_MAX_ITEMS}
+    )
 
 
 class HackerNewsHotAdapter:
@@ -46,16 +57,14 @@ class HackerNewsHotAdapter:
     def build_request(self, source: Source) -> RequestSpec:
         return html_request(source)
 
-    def build_history_requests(
+    def build_history_plan(
         self,
         source: Source,
         since: datetime,
-    ) -> tuple[RequestSpec, ...]:
-        hits = min(
-            option_int(source, "history_max_items", DEFAULT_HISTORY_MAX_ITEMS),
-            MAX_SEARCH_HITS,
-        )
-        return (
+    ) -> HistoryPlan:
+        options = validate_options(source)
+        hits = min(options["history_max_items"], MAX_SEARCH_HITS)
+        requests = (
             RequestSpec(
                 method="GET",
                 url=SEARCH_URL,
@@ -67,6 +76,7 @@ class HackerNewsHotAdapter:
                 },
             ),
         )
+        return HistoryPlan(requests, max_items=options["history_max_items"])
 
     def parse_history_page(
         self,
@@ -86,7 +96,7 @@ class HackerNewsHotAdapter:
         for hit in hits:
             if not isinstance(hit, dict):
                 continue
-            item_id = text(hit.get("objectID"))
+            item_id = scalar_text(hit.get("objectID"))
             title = text(hit.get("title"))
             if not item_id or not title:
                 continue
@@ -94,7 +104,7 @@ class HackerNewsHotAdapter:
             points = hit.get("points")
             if isinstance(points, int):
                 metrics["points"] = points
-            raw_published = text(hit.get("created_at_i"))
+            raw_published = scalar_text(hit.get("created_at_i"))
             published = _parse_hn_timestamp(raw_published)
             if published is None or published < since:
                 continue

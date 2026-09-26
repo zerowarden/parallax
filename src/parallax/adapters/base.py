@@ -65,11 +65,12 @@ class SteppedAdapter(Protocol):
     Used for session/bootstrap flows where a later request needs cookies or
     values from an earlier response. The adapter owns the sequence and its
     immutable context; the orchestration layer performs every request through
-    the shared transport under a bounded step count.
+    the shared transport under a bounded request count. At least one HTTP
+    response is required to establish the refresh's observation timestamp.
     """
 
     def first_step(self, source: Source) -> AdapterStep:
-        """Build the first request or complete immediately."""
+        """Build the first request; immediate completion is rejected by execution."""
         ...
 
     def next_step(
@@ -85,6 +86,14 @@ class SteppedAdapter(Protocol):
 Adapter = SourceAdapter | MultiRequestAdapter | SteppedAdapter
 
 
+@dataclass(frozen=True, slots=True)
+class HistoryPlan:
+    """An adapter's validated request and accepted-item budgets."""
+
+    requests: tuple[RequestSpec, ...]
+    max_items: int
+
+
 @runtime_checkable
 class HistoricalAdapter(Protocol):
     """Adapter that can widen a refresh to a publication-time window.
@@ -95,12 +104,12 @@ class HistoricalAdapter(Protocol):
     valid result; incompatible payloads must still fail clearly.
     """
 
-    def build_history_requests(
+    def build_history_plan(
         self,
         source: Source,
         since: datetime,
-    ) -> tuple[RequestSpec, ...]:
-        """Build the requests covering items published since ``since``."""
+    ) -> HistoryPlan:
+        """Build a bounded plan for items published since ``since``."""
         ...
 
     def parse_history_page(

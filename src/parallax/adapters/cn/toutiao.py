@@ -3,7 +3,12 @@ from __future__ import annotations
 from typing import Any
 
 from parallax.adapters.common.http import json_request
-from parallax.adapters.common.parsing import decode_json_object, require_list, text
+from parallax.adapters.common.parsing import (
+    decode_json_object,
+    require_list,
+    scalar_text,
+    text,
+)
 from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
@@ -37,9 +42,9 @@ class ToutiaoHotAdapter:
         for position, item in enumerate(items[:max_items], start=1):
             if not isinstance(item, dict):
                 continue
-            cluster_id = text(item.get("ClusterIdStr"))
+            cluster_id = scalar_text(item.get("ClusterIdStr"))
             metrics: dict[str, Any] = {}
-            hot_value = text(item.get("HotValue"))
+            hot_value = scalar_text(item.get("HotValue"))
             if hot_value:
                 metrics["hot_value"] = hot_value
             candidates.append(

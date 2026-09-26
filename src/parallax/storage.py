@@ -899,7 +899,6 @@ class Storage:
             raise ValueError("offset must not be negative")
         _validate_browse_bounds(view, since, until)
         filters, params = _browse_filters(
-            view=view,
             since=since,
             until=until,
             query=query,
@@ -952,7 +951,6 @@ class Storage:
         """Count durable items matching the same predicates as browsing."""
         _validate_browse_bounds(view, since, until)
         filters, params = _browse_filters(
-            view=view,
             since=since,
             until=until,
             query=query,
@@ -1637,7 +1635,6 @@ def _validate_browse_bounds(
 
 def _browse_filters(
     *,
-    view: BrowseView,
     since: datetime,
     until: datetime,
     query: str | None,
@@ -1653,34 +1650,38 @@ def _browse_filters(
     return filters, params
 
 
+def _eligible_observations(
+    *,
+    view: BrowseView,
+    source_id: str | None,
+) -> tuple[str, list[object]]:
+    """Shared eligibility for membership and representative-source selection."""
+    joins = ""
+    filters = ["eligible.item_id = i.id", "src.enabled = 1"]
+    params: list[object] = []
+    if view != "all":
+        joins = "JOIN source_surfaces ss ON ss.source_id = eligible.source_id"
+        filters.append("ss.surface = ?")
+        params.append(view)
+    if source_id:
+        filters.append("eligible.source_id = ?")
+        params.append(source_id)
+    return (
+        "FROM observations eligible "
+        "JOIN sources src ON src.source_id = eligible.source_id "
+        f"{joins} WHERE {' AND '.join(filters)}",
+        params,
+    )
+
+
 def _membership_filter(
     *,
     view: BrowseView,
     source_id: str | None,
 ) -> tuple[str, list[object]]:
-    """Item-level membership in one browse view, independent of enumeration."""
-    surface_join = ""
-    surface_filter = ""
-    params: list[object] = []
-    if view != "all":
-        surface_join = "JOIN source_surfaces ss ON ss.source_id = o.source_id"
-        surface_filter = "AND ss.surface = ?"
-        params.append(view)
-    source_filter = ""
-    if source_id:
-        source_filter = "AND o.source_id = ?"
-        params.append(source_id)
-    return (
-        "EXISTS ("
-        "SELECT 1 FROM observations o "
-        "JOIN sources s ON s.source_id = o.source_id "
-        f"{surface_join} "
-        "WHERE o.item_id = i.id AND s.enabled = 1 "
-        f"{surface_filter} "
-        f"{source_filter}"
-        ")",
-        params,
-    )
+    """Count membership without ordering or selecting a representative."""
+    eligible, params = _eligible_observations(view=view, source_id=source_id)
+    return f"EXISTS (SELECT 1 {eligible})", params
 
 
 def _representative_filter(
@@ -1688,28 +1689,11 @@ def _representative_filter(
     view: BrowseView,
     source_id: str | None,
 ) -> tuple[str, list[object]]:
-    """Choose one deterministic observation row per item for display."""
-    surface_join = ""
-    surface_filter = ""
-    params: list[object] = []
-    if view != "all":
-        surface_join = "JOIN source_surfaces ss3 ON ss3.source_id = o3.source_id"
-        surface_filter = "AND ss3.surface = ?"
-        params.append(view)
-    source_filter = ""
-    if source_id:
-        source_filter = "AND o3.source_id = ?"
-        params.append(source_id)
+    """Choose one deterministic eligible observation per item for display."""
+    eligible, params = _eligible_observations(view=view, source_id=source_id)
     return (
-        "o.source_id = ("
-        "SELECT o3.source_id FROM observations o3 "
-        "JOIN sources s3 ON s3.source_id = o3.source_id "
-        f"{surface_join} "
-        "WHERE o3.item_id = i.id AND s3.enabled = 1 "
-        f"{surface_filter} "
-        f"{source_filter} "
-        "ORDER BY o3.last_seen_at DESC, o3.source_id LIMIT 1"
-        ")",
+        f"o.source_id = (SELECT eligible.source_id {eligible} "
+        "ORDER BY eligible.last_seen_at DESC, eligible.source_id LIMIT 1)",
         params,
     )
 

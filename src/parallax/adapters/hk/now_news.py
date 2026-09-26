@@ -3,13 +3,13 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+from parallax.adapters.base import HistoryPlan
 from parallax.adapters.common.http import json_request
 from parallax.adapters.common.options import (
-    DEFAULT_HISTORY_MAX_PAGES,
-    DEFAULT_HISTORY_PAGE_SIZE,
-    option_int,
+    DEFAULT_HISTORY_MAX_ITEMS,
+    positive_integer_options,
 )
-from parallax.adapters.common.parsing import decode_json_list, text
+from parallax.adapters.common.parsing import decode_json_list, scalar_text, text
 from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
@@ -22,6 +22,17 @@ from parallax.parsing import parse_timestamp
 
 PLAYER_URL_TEMPLATE = "https://news.now.com/home/local/player?newsId={news_id}"
 AD_STORY_PREFIX = "NM-JOBAD"
+
+
+def validate_options(source: Source) -> dict[str, int]:
+    return positive_integer_options(
+        source,
+        {
+            "history_max_pages": 5,
+            "history_page_size": 100,
+            "history_max_items": DEFAULT_HISTORY_MAX_ITEMS,
+        },
+    )
 
 
 class NowNewsAdapter:
@@ -43,15 +54,18 @@ class NowNewsAdapter:
             raise ValueError("Now News response contains no articles")
         return batch
 
-    def build_history_requests(
+    def build_history_plan(
         self,
         source: Source,
         since: datetime,
-    ) -> tuple[RequestSpec, ...]:
-        pages = option_int(source, "history_max_pages", DEFAULT_HISTORY_MAX_PAGES)
-        size = option_int(source, "history_page_size", DEFAULT_HISTORY_PAGE_SIZE)
-        return tuple(
-            _page_request(source, page=page, size=size) for page in range(1, pages + 1)
+    ) -> HistoryPlan:
+        options = validate_options(source)
+        return HistoryPlan(
+            requests=tuple(
+                _page_request(source, page=page, size=options["history_page_size"])
+                for page in range(1, options["history_max_pages"] + 1)
+            ),
+            max_items=options["history_max_items"],
         )
 
     def parse_history_page(
@@ -85,13 +99,13 @@ def _parse_entries(
     for entry in entries:
         if not isinstance(entry, dict):
             continue
-        news_id = text(entry.get("newsId"))
+        news_id = scalar_text(entry.get("newsId"))
         title = text(entry.get("title"))
         if not news_id or not title or news_id in seen:
             continue
         if text(entry.get("storyTitle")).startswith(AD_STORY_PREFIX):
             continue
-        raw_published = text(entry.get("publishDate"))
+        raw_published = scalar_text(entry.get("publishDate"))
         published = parse_timestamp(raw_published)
         if since is not None and (published is None or published < since):
             continue
@@ -100,7 +114,7 @@ def _parse_entries(
         publisher = text(entry.get("newsSource"))
         if publisher:
             metrics["source"] = publisher
-        views = text(entry.get("viewCount"))
+        views = scalar_text(entry.get("viewCount"))
         if views.isdigit():
             metrics["view_count"] = int(views)
         candidates.append(

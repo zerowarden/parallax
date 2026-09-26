@@ -12,6 +12,7 @@ from parallax.adapters.common.parsing import (
     decode_json_object,
     require_list,
     require_mapping,
+    scalar_text,
     text,
 )
 from parallax.config import Source
@@ -136,11 +137,11 @@ def _candidates(
             continue
         if skip_ads and entry.get("is_ad"):
             continue
-        article_id = text(entry.get("id"))
+        article_id = scalar_text(entry.get("id"))
         title = text(entry.get("title")) or text(entry.get("brief"))
         if not article_id or not title:
             continue
-        raw_published = text(entry.get("ctime"))
+        raw_published = scalar_text(entry.get("ctime"))
         candidates.append(
             HeadlineCandidate(
                 title=title,

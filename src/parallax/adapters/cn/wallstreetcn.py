@@ -9,6 +9,7 @@ from parallax.adapters.common.parsing import (
     decode_json_object,
     require_list,
     require_mapping,
+    scalar_text,
     text,
 )
 from parallax.config import Source
@@ -141,8 +142,8 @@ def _live_fields(entry: dict[str, Any], source: Source) -> _Fields:
     return _Fields(
         title=text(entry.get("title")) or text(entry.get("content_text")),
         url=text(entry.get("uri")),
-        external_id=text(entry.get("id")) or None,
-        raw_published_at=text(entry.get("display_time")),
+        external_id=scalar_text(entry.get("id")) or None,
+        raw_published_at=scalar_text(entry.get("display_time")),
         metrics={},
     )
 
@@ -158,8 +159,8 @@ def _news_fields(entry: dict[str, Any], source: Source) -> _Fields | None:
     return _Fields(
         title=text(resource.get("title")) or text(resource.get("content_short")),
         url=text(resource.get("uri")),
-        external_id=text(resource.get("id")) or None,
-        raw_published_at=text(resource.get("display_time")),
+        external_id=scalar_text(resource.get("id")) or None,
+        raw_published_at=scalar_text(resource.get("display_time")),
         metrics={},
     )
 
@@ -172,7 +173,7 @@ def _hot_fields(entry: dict[str, Any], source: Source) -> _Fields | None:
     return _Fields(
         title=text(entry.get("title")),
         url=text(entry.get("uri")),
-        external_id=text(entry.get("id")) or None,
-        raw_published_at=text(entry.get("display_time")),
+        external_id=scalar_text(entry.get("id")) or None,
+        raw_published_at=scalar_text(entry.get("display_time")),
         metrics=metrics,
     )

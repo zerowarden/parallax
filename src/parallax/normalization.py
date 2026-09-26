@@ -21,9 +21,11 @@ def normalize_url_for_identity(url: str) -> str:
     split = urlsplit(url.strip())
     scheme = split.scheme.lower()
     hostname = (split.hostname or "").lower()
+    if ":" in hostname:
+        hostname = f"[{hostname}]"
     port = split.port
 
-    if port and not (
+    if port is not None and not (
         (scheme == "http" and port == 80) or (scheme == "https" and port == 443)
     ):
         netloc = f"{hostname}:{port}"

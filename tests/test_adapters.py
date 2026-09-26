@@ -14,7 +14,7 @@ from adapter_contract import (
     response_for,
 )
 from parallax.adapters import AdapterRegistry
-from parallax.adapters.base import CompleteStep, ContinueStep
+from parallax.adapters.base import CompleteStep, ContinueStep, SourceAdapter
 from parallax.adapters.cn.baidu import BaiduHotSearchAdapter
 from parallax.adapters.cn.bilibili import (
     BilibiliHotSearchAdapter,
@@ -3123,7 +3123,7 @@ def test_now_news_adapter_history_pages_and_filters(fixtures_dir: Path):
     payload = (fixtures_dir / "now-news" / "hot.json").read_bytes()
     since = datetime.fromtimestamp(1789560000, tz=UTC)
 
-    requests = NowNewsAdapter().build_history_requests(source, since)
+    requests = NowNewsAdapter().build_history_plan(source, since).requests
     batch = (
         NowNewsAdapter()
         .parse_history_page(
@@ -3333,7 +3333,7 @@ def test_hackernews_adapter_builds_history_request():
     source = _source("hackernews_hot", "https://news.ycombinator.com/")
     since = datetime(2026, 9, 17, 0, 0, tzinfo=UTC)
 
-    requests = HackerNewsHotAdapter().build_history_requests(source, since)
+    requests = HackerNewsHotAdapter().build_history_plan(source, since).requests
 
     assert len(requests) == 1
     request = requests[0]
@@ -3420,3 +3420,62 @@ def test_history_options_are_validated_during_catalog_lint(
     source = make_source(adapter="now_news", options={key: value})
     with pytest.raises(ValueError, match=key):
         AdapterRegistry().validate_source(source)
+    with pytest.raises(ValueError, match=key):
+        NowNewsAdapter().build_history_plan(source, OBSERVED_AT)
+
+
+@pytest.mark.parametrize(
+    "adapter, adapter_name",
+    [(NowNewsAdapter(), "now_news"), (HackerNewsHotAdapter(), "hackernews_hot")],
+)
+def test_history_plan_uses_the_validated_item_budget(
+    adapter: NowNewsAdapter | HackerNewsHotAdapter, adapter_name: str
+) -> None:
+    source = make_source(adapter=adapter_name, options={"history_max_items": 7})
+    AdapterRegistry().validate_source(source)
+    assert adapter.build_history_plan(source, OBSERVED_AT).max_items == 7
+
+
+@pytest.mark.parametrize(
+    "adapter, adapter_name",
+    [
+        (BilibiliHotVideoAdapter(), "bilibili_hot_video"),
+        (BilibiliRankingAdapter(), "bilibili_ranking"),
+    ],
+)
+@pytest.mark.parametrize("title", [{"text": "Headline"}, ["Headline"], True, 42])
+def test_video_adapters_reject_non_text_headlines(
+    adapter: SourceAdapter, adapter_name: str, title: object
+) -> None:
+    source = make_source(adapter=adapter_name)
+    payload = json.dumps(
+        {"code": 0, "data": {"list": [{"bvid": "BV123", "title": title}]}}
+    ).encode()
+    with pytest.raises(ValueError, match="Expected upstream text"):
+        adapter.parse(source, response_for(source, payload))
+
+
+def test_now_news_keeps_numeric_identity_and_timestamp_without_coercing_titles() -> (
+    None
+):
+    source = make_source(adapter="now_news")
+    entry: dict[str, object] = {
+        "newsId": 42,
+        "title": " 標題 ",
+        "publishDate": 1789560000000,
+        "viewCount": 0,
+    }
+    payload = json.dumps([entry]).encode()
+    candidate = (
+        NowNewsAdapter().parse(source, response_for(source, payload)).candidates[0]
+    )
+    assert candidate.external_id == "42"
+    assert candidate.title == "標題"
+    assert candidate.published_at == datetime.fromtimestamp(1789560000, tz=UTC)
+    assert candidate.metrics["view_count"] == 0
+
+    entry["title"] = {"text": "標題"}
+    with pytest.raises(ValueError, match="Expected upstream text"):
+        NowNewsAdapter().parse(
+            source, response_for(source, json.dumps([entry]).encode())
+        )

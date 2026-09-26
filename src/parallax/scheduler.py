@@ -4,9 +4,8 @@ import logging
 import time
 from datetime import UTC, datetime
 
-from parallax.config import SchedulerConfig
+from parallax.config import SchedulerConfig, SourceCatalog
 from parallax.ingest import IngestionService
-from parallax.registry import SourceRegistry
 from parallax.storage import Storage
 
 LOGGER = logging.getLogger(__name__)
@@ -15,12 +14,12 @@ LOGGER = logging.getLogger(__name__)
 class Scheduler:
     def __init__(
         self,
-        registry: SourceRegistry,
+        catalog: SourceCatalog,
         storage: Storage,
         ingestion: IngestionService,
         config: SchedulerConfig,
     ) -> None:
-        self._registry = registry
+        self._catalog = catalog
         self._storage = storage
         self._ingestion = ingestion
         self._config = config
@@ -28,7 +27,7 @@ class Scheduler:
     def run_due_once(self) -> int:
         now = datetime.now(UTC)
         due = []
-        for source in self._registry.enabled():
+        for source in self._catalog.enabled_sources():
             state = self._storage.get_stream_state(source.id)
             if state.next_run_at is not None and state.next_run_at > now:
                 LOGGER.debug(

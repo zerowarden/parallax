@@ -7,6 +7,7 @@ from parallax.adapters.common.http import json_request
 from parallax.adapters.common.parsing import (
     decode_json_object,
     require_list,
+    scalar_text,
     text,
 )
 from parallax.config import Source
@@ -58,7 +59,7 @@ class MktNewsFlashAdapter:
             data = entry.get("data")
             if not isinstance(data, dict):
                 continue
-            flash_id = text(entry.get("id"))
+            flash_id = scalar_text(entry.get("id"))
             raw_published = text(entry.get("time"))
             metrics: dict[str, Any] = {}
             if entry.get("important") == 1:

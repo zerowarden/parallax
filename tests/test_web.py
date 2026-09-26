@@ -780,3 +780,46 @@ def test_source_filter_labels_appearance_of_canonical_title(storage: Storage) ->
     assert [
         row.title for row in storage.latest_snapshot_headlines(source_id=first.id)
     ] == ["Wording from A"]
+
+
+def test_browser_uses_tzdata_when_system_timezone_database_is_absent() -> None:
+    import os
+    import subprocess
+    import sys
+
+    script = """
+import zoneinfo
+from datetime import UTC, datetime
+from parallax.web import format_relative, window_start
+assert zoneinfo.TZPATH == ()
+now = datetime(2026, 9, 18, 4, tzinfo=UTC)
+assert window_start(1, now) == datetime(2026, 9, 17, 16, tzinfo=UTC)
+assert format_relative("2026-09-18T03:00:00+00:00", now) == "1h ago"
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        env={**os.environ, "PYTHONTZPATH": ""},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_browser_import_defers_timezone_lookup() -> None:
+    import subprocess
+    import sys
+
+    script = """
+import zoneinfo
+
+def missing_timezone(*args, **kwargs):
+    raise AssertionError("Timezone lookup during import")
+
+zoneinfo.ZoneInfo = missing_timezone
+import parallax.web
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0, result.stderr

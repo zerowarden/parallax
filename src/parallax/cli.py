@@ -13,7 +13,6 @@ from parallax.feed import FeedOrder, build_headline_feed, build_headline_groups
 from parallax.parsing import parse_since
 from parallax.presentation import Presenter
 from parallax.runtime import ArchiveRuntime, DiagnosticRuntime, Runtime
-from parallax.web import create_app
 
 app = typer.Typer(
     no_args_is_help=True,
@@ -84,9 +83,9 @@ def initialize(
     with _runtime(config) as runtime:
         logging.getLogger(__name__).info(
             "operation=cli_init database=%s",
-            runtime.config.app.database_path,
+            runtime.catalog.app.database_path,
         )
-        typer.echo(f"Initialized {runtime.config.app.database_path}")
+        typer.echo(f"Initialized {runtime.catalog.app.database_path}")
 
 
 @app.command("sources")
@@ -106,7 +105,7 @@ def fetch_source(
     """Fetch one source immediately, independent of its schedule."""
     window = _since_window(since)
     with _runtime(config) as runtime:
-        source = runtime.registry.get(source_id)
+        source = runtime.catalog.source(source_id)
         logging.getLogger(__name__).info(
             "operation=cli_fetch source_id=%s since=%s",
             source.id,
@@ -134,11 +133,11 @@ def fetch_all(
         logger = logging.getLogger(__name__)
         logger.info(
             "operation=cli_fetch_all count=%s since=%s",
-            len(runtime.registry.enabled()),
+            len(runtime.catalog.enabled_sources()),
             since or "-",
         )
         result = runtime.ingestion.fetch_sources(
-            runtime.registry.enabled(),
+            runtime.catalog.enabled_sources(),
             since=window,
         )
         Presenter().fetch_results(result.summaries, result.failures)
@@ -195,7 +194,7 @@ def show_headlines(
         raise typer.BadParameter("--order is only valid for the global feed")
     with _archive(config) as runtime:
         if source_id is not None:
-            runtime.registry.get(source_id)
+            runtime.catalog.source(source_id)
         logging.getLogger(__name__).info(
             "operation=cli_show source_id=%s limit=%s order=%s",
             source_id or "all",
@@ -226,9 +225,11 @@ def serve_web(
     config: CONFIG_OPTION = Path("config/config.toml"),
 ) -> None:
     """Serve the browser reader over the stored headline archive."""
+    from parallax.web import create_app
+
     with _archive(config) as runtime:
         logging.getLogger("werkzeug").setLevel(logging.WARNING)
-        application = create_app(runtime.storage, runtime.registry.enabled())
+        application = create_app(runtime.storage, runtime.catalog.enabled_sources())
         typer.echo(f"Parallax web reader: http://{host}:{port}")
         application.run(host=host, port=port, threaded=False)
 
@@ -246,9 +247,9 @@ def diagnose_sources(
     """Diagnose source health without recording fetch results."""
     with DiagnosticRuntime.build(config) as runtime:
         if source_id is not None:
-            sources = [runtime.registry.get(source_id)]
+            sources = [runtime.catalog.source(source_id)]
         else:
-            sources = list(runtime.registry.enabled())
+            sources = list(runtime.catalog.enabled_sources())
         logging.getLogger(__name__).info(
             "operation=cli_doctor source_id=%s count=%s",
             source_id or "all",

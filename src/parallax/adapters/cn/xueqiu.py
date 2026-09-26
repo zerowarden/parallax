@@ -9,6 +9,7 @@ from parallax.adapters.common.parsing import (
     decode_json_object,
     require_list,
     require_mapping,
+    scalar_text,
     text,
 )
 from parallax.config import Source
@@ -73,7 +74,7 @@ def _parse_hot(source: Source, response: HttpResponse) -> ParsedBatch:
     for entry in entries:
         if not isinstance(entry, dict) or entry.get("ad"):
             continue
-        code = text(entry.get("code"))
+        code = scalar_text(entry.get("code"))
         title = text(entry.get("name"))
         if not code or not title:
             continue

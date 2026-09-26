@@ -8,6 +8,7 @@ from parallax.adapters.common.parsing import (
     decode_json_object,
     parse_china_timestamp,
     require_list,
+    scalar_text,
     text,
 )
 from parallax.config import Source
@@ -71,7 +72,7 @@ class CankaoxiaoxiNewsAdapter:
                 HeadlineCandidate(
                     title=title,
                     url=url,
-                    external_id=text(data.get("id")) or None,
+                    external_id=scalar_text(data.get("id")) or None,
                     published_at=parse_china_timestamp(raw_published),
                     raw_published_at=raw_published or None,
                     position=len(candidates) + 1,

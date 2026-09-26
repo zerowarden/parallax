@@ -7,10 +7,37 @@ import pytest
 from parallax.adapters.common.parsing import (
     parse_china_timestamp,
     parse_relative_time,
+    scalar_text,
+    text,
 )
 from parallax.parsing import parse_since, parse_timestamp
 
 NOW = datetime(2026, 9, 17, 12, 0, tzinfo=UTC)
+
+
+@pytest.mark.parametrize("value, expected", [(None, ""), ("  標題  ", "標題")])
+def test_optional_upstream_text(value: object, expected: str) -> None:
+    assert text(value) == expected
+    assert scalar_text(value) == expected
+
+
+@pytest.mark.parametrize("value", [{"title": "Headline"}, ["Headline"], True, 42, 1.5])
+def test_upstream_text_rejects_non_text_values(value: object) -> None:
+    with pytest.raises(ValueError, match="Expected upstream text"):
+        text(value)
+
+
+@pytest.mark.parametrize("value, expected", [(0, "0"), (42, "42"), (1.5, "1.5")])
+def test_explicit_numeric_scalar_conversion(value: object, expected: str) -> None:
+    assert scalar_text(value) == expected
+
+
+@pytest.mark.parametrize("value", [{"id": 42}, [42], True, float("nan"), float("inf")])
+def test_scalar_conversion_rejects_structures_booleans_and_nonfinite_numbers(
+    value: object,
+) -> None:
+    with pytest.raises(ValueError, match="Expected upstream string or number"):
+        scalar_text(value)
 
 
 def test_parse_relative_time_handles_common_labels():

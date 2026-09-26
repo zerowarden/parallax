@@ -3,10 +3,9 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import cast
 
-from parallax.config import SchedulerConfig, Source
+from parallax.config import SchedulerConfig, Source, SourceCatalog
 from parallax.domain import IngestionBatchResult, StreamState
 from parallax.ingest import IngestionService
-from parallax.registry import SourceRegistry
 from parallax.scheduler import Scheduler
 from parallax.storage import Storage
 from source_factory import make_source
@@ -18,14 +17,6 @@ def _source(source_id: str) -> Source:
         adapter="fixture",
         url=f"https://example.test/{source_id}",
     )
-
-
-class _Registry:
-    def __init__(self, sources: list[Source]) -> None:
-        self.sources = sources
-
-    def enabled(self) -> list[Source]:
-        return self.sources
 
 
 class _Storage:
@@ -50,7 +41,7 @@ def test_scheduler_dispatches_only_due_sources() -> None:
     future = _source("future")
     ingestion = _Ingestion()
     scheduler = Scheduler(
-        cast(SourceRegistry, _Registry([due, future])),
+        SourceCatalog(sources=(due, future)),
         cast(
             Storage,
             _Storage(
@@ -75,7 +66,7 @@ def test_scheduler_does_not_dispatch_when_nothing_is_due() -> None:
     source = _source("future")
     ingestion = _Ingestion()
     scheduler = Scheduler(
-        cast(SourceRegistry, _Registry([source])),
+        SourceCatalog(sources=(source,)),
         cast(
             Storage,
             _Storage(

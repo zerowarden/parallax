@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from parallax.adapters.common.http import json_request
-from parallax.adapters.common.parsing import decode_json_object, text
+from parallax.adapters.common.parsing import decode_json_object, scalar_text, text
 from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
@@ -35,7 +35,7 @@ class ThePaperHotAdapter:
         for position, item in enumerate(hot_news[:max_items], start=1):
             if not isinstance(item, dict):
                 continue
-            cont_id = text(item.get("contId"))
+            cont_id = scalar_text(item.get("contId"))
             title = text(item.get("name"))
             raw_published = item.get("pubTimeLong")
             metrics: dict[str, Any] = {}

@@ -4,7 +4,12 @@ from datetime import UTC, datetime
 from typing import Any
 
 from parallax.adapters.common.http import JSON_ACCEPT
-from parallax.adapters.common.parsing import decode_json_object, require_list, text
+from parallax.adapters.common.parsing import (
+    decode_json_object,
+    require_list,
+    scalar_text,
+    text,
+)
 from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
@@ -58,7 +63,7 @@ class V2exShareAdapter:
                 HeadlineCandidate(
                     title=text(entry.get("title")),
                     url=text(entry.get("url")),
-                    external_id=text(entry.get("id")) or None,
+                    external_id=scalar_text(entry.get("id")) or None,
                     published_at=parse_timestamp(raw_published),
                     raw_published_at=raw_published or None,
                     position=position,

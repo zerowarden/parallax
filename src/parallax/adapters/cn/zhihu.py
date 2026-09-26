@@ -3,7 +3,12 @@ from __future__ import annotations
 from typing import Any
 
 from parallax.adapters.common.http import json_request
-from parallax.adapters.common.parsing import decode_json_object, require_list, text
+from parallax.adapters.common.parsing import (
+    decode_json_object,
+    require_list,
+    scalar_text,
+    text,
+)
 from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
@@ -43,7 +48,7 @@ class ZhihuHotAdapter:
             heat = _area_text(target, "metrics_area", "text")
             if heat:
                 metrics["heat"] = heat
-            external_id = text(entry.get("card_id")).removeprefix("Q_")
+            external_id = scalar_text(entry.get("card_id")).removeprefix("Q_")
             candidates.append(
                 HeadlineCandidate(
                     title=_area_text(target, "title_area", "text"),
