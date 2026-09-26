@@ -6,37 +6,39 @@ from collections.abc import Sequence
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 
 import httpx
 
 from parallax.adapters.base import (
-    AdapterLookup,
+    AdapterResolver,
     HistoricalAdapter,
     HistoryPlan,
-    MultiRequestAdapter,
-    SourceAdapter,
-    SteppedAdapter,
 )
 from parallax.adapters.execution import (
     raise_for_status,
     run_adapter_refresh,
 )
+from parallax.adapters.results import NotModifiedRefresh, ResponseValidators
 from parallax.config import IngestionConfig, Source
 from parallax.domain import (
-    HeadlineCandidate,
     HistoryOutcome,
     HistoryStatus,
     IngestionBatchResult,
     IngestionFailure,
     IngestionSummary,
+    ObservedBatch,
+    ObservedCandidate,
     ParsedBatch,
     StreamState,
     ValidatedBatch,
 )
 from parallax.identity import identity_keys
-from parallax.storage import Storage
 from parallax.transport import Transport
 from parallax.validation import BatchValidator
+
+if TYPE_CHECKING:
+    from parallax.storage import Storage
 
 LOGGER = logging.getLogger(__name__)
 ERROR_MESSAGE_LIMIT = 2000
@@ -46,26 +48,17 @@ ERROR_MESSAGE_LIMIT = 2000
 class _PreparedSuccess:
     batch: ValidatedBatch
     http_status: int | None
-    etag: str | None
-    last_modified: str | None
     observed_at: datetime
-    request_identity: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class _PreparedNotModified:
-    etag: str | None
-    last_modified: str | None
-    request_identity: str | None = None
+    conditional: ResponseValidators | None
 
 
 @dataclass(frozen=True, slots=True)
 class _PreparedHistory:
-    batch: ValidatedBatch
+    batch: ObservedBatch
     outcome: HistoryOutcome
 
 
-_PreparedOutcome = _PreparedSuccess | _PreparedNotModified | _PreparedHistory
+_PreparedOutcome = _PreparedSuccess | NotModifiedRefresh | _PreparedHistory
 
 
 class IngestionService:
@@ -73,7 +66,7 @@ class IngestionService:
         self,
         storage: Storage,
         transport: Transport,
-        adapters: AdapterLookup,
+        adapters: AdapterResolver,
         validator: BatchValidator,
         ingestion_config: IngestionConfig,
     ) -> None:
@@ -204,7 +197,7 @@ class IngestionService:
         state: StreamState,
         since: datetime | None,
     ) -> _PreparedOutcome:
-        adapter = self._adapters.get(source.endpoint.adapter)
+        adapter = self._adapters.resolve_source(source)
         if since is not None:
             if since.tzinfo is None:
                 raise ValueError("history timestamps must be timezone-aware")
@@ -213,54 +206,19 @@ class IngestionService:
                 plan = adapter.build_history_plan(source, since)
                 return self._prepare_history(source, adapter, plan, since, until)
             return _PreparedHistory(
-                ValidatedBatch((), 0),
+                ObservedBatch((), 0),
                 HistoryOutcome(
                     since, until, None, None, 0, 0, "unsupported", "unsupported"
                 ),
             )
-        if isinstance(adapter, (MultiRequestAdapter, SteppedAdapter)):
-            return self._prepare_combined(source, adapter)
-        return self._prepare_single(source, adapter, state)
-
-    def _prepare_single(
-        self, source: Source, adapter: SourceAdapter, state: StreamState
-    ) -> _PreparedSuccess | _PreparedNotModified:
         refresh = run_adapter_refresh(adapter, source, self._transport, state)
-        response = refresh.responses[0]
-        if refresh.not_modified:
-            return _PreparedNotModified(
-                response.headers.get("etag"),
-                response.headers.get("last-modified"),
-                response.request_identity,
-            )
-        assert refresh.batch is not None
+        if isinstance(refresh, NotModifiedRefresh):
+            return refresh
         return _PreparedSuccess(
             self._validate(source, refresh.batch),
-            response.status_code,
-            response.headers.get("etag"),
-            response.headers.get("last-modified"),
+            refresh.http_status,
             refresh.observed_at,
-            response.request_identity,
-        )
-
-    def _prepare_combined(
-        self,
-        source: Source,
-        adapter: MultiRequestAdapter | SteppedAdapter,
-    ) -> _PreparedSuccess:
-        refresh = run_adapter_refresh(
-            adapter,
-            source,
-            self._transport,
-            StreamState(source_id=source.id),
-        )
-        assert refresh.batch is not None
-        return _PreparedSuccess(
-            self._validate(source, refresh.batch),
-            None,
-            None,
-            None,
-            refresh.observed_at,
+            refresh.conditional,
         )
 
     def _prepare_history(
@@ -273,7 +231,7 @@ class IngestionService:
     ) -> _PreparedHistory:
         state = StreamState(source_id=source.id)
         budget = plan.max_items
-        accepted: dict[str, HeadlineCandidate] = {}
+        accepted: dict[str, ObservedCandidate] = {}
         warnings: list[str] = []
         rejected = 0
         pages = 0
@@ -294,7 +252,9 @@ class IngestionService:
                 ):
                     continue
                 key, _ = identity_keys(candidate, provider_id=source.provider_id)
-                accepted.setdefault(key, candidate)
+                accepted.setdefault(
+                    key, ObservedCandidate(candidate, response.observed_at)
+                )
                 if len(accepted) == budget:
                     break
             if len(accepted) == budget:
@@ -304,15 +264,19 @@ class IngestionService:
                 reason = "upstream_exhausted"
                 status = "exhausted"
                 break
-        candidates = tuple(accepted.values())
-        published = [c.published_at for c in candidates if c.published_at is not None]
+        observations = tuple(accepted.values())
+        published = [
+            observation.candidate.published_at
+            for observation in observations
+            if observation.candidate.published_at is not None
+        ]
         outcome = HistoryOutcome(
             requested_since=since,
             requested_until=until,
             observed_since=min(published, default=None),
             observed_until=max(published, default=None),
             pages_requested=pages,
-            items_accepted=len(candidates),
+            items_accepted=len(observations),
             status=status,
             stop_reason=reason,
         )
@@ -321,12 +285,12 @@ class IngestionService:
             "status=%s reason=%s",
             source.id,
             pages,
-            len(candidates),
+            len(observations),
             outcome.status,
             reason,
         )
         return _PreparedHistory(
-            ValidatedBatch(candidates, rejected, tuple(warnings)), outcome
+            ObservedBatch(observations, rejected, tuple(warnings)), outcome
         )
 
     def _commit_prepared(
@@ -336,29 +300,30 @@ class IngestionService:
         now: datetime,
         prepared: _PreparedOutcome,
     ) -> IngestionSummary:
-        if isinstance(prepared, _PreparedNotModified):
+        if isinstance(prepared, NotModifiedRefresh):
             return self._storage.record_not_modified(
                 source.id,
                 run_id,
-                prepared.etag,
-                prepared.last_modified,
+                prepared.conditional.etag,
+                prepared.conditional.last_modified,
                 now + timedelta(seconds=source.interval_seconds),
-                request_identity=prepared.request_identity,
+                request_identity=prepared.conditional.request_identity,
             )
         if isinstance(prepared, _PreparedHistory):
             return self._storage.record_history(
                 source, run_id, prepared.batch, prepared.outcome
             )
+        conditional = prepared.conditional
         return self._storage.record_success(
             source=source,
             fetch_run_id=run_id,
             http_status=prepared.http_status,
             batch=prepared.batch,
-            response_etag=prepared.etag,
-            response_last_modified=prepared.last_modified,
+            response_etag=conditional.etag if conditional else None,
+            response_last_modified=conditional.last_modified if conditional else None,
             next_run_at=now + timedelta(seconds=source.interval_seconds),
             observed_at=prepared.observed_at,
-            request_identity=prepared.request_identity,
+            request_identity=conditional.request_identity if conditional else None,
         )
 
     def _validate(self, source: Source, parsed: ParsedBatch) -> ValidatedBatch:

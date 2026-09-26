@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from typing import Any
-
 from parallax.adapters.common.http import json_request
 from parallax.adapters.common.parsing import (
     decode_json_object,
+    extracted_batch,
     require_list,
     scalar_text,
     text,
@@ -13,6 +12,7 @@ from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
+    JsonValue,
     ParsedBatch,
     RequestSpec,
 )
@@ -78,7 +78,7 @@ class IqiyiHotRanklistAdapter:
         for entry in entries[:max_items]:
             if not isinstance(entry, dict):
                 continue
-            metrics: dict[str, Any] = {}
+            metrics: dict[str, JsonValue] = {}
             show_date = text(entry.get("showDate"))
             if show_date:
                 metrics["show_date"] = show_date
@@ -94,4 +94,4 @@ class IqiyiHotRanklistAdapter:
                     metrics=metrics,
                 )
             )
-        return ParsedBatch(candidates=tuple(candidates))
+        return extracted_batch(candidates, entries=entries, label="iqiyi")

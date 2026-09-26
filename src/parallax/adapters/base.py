@@ -3,10 +3,12 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-from parallax.config import Source
 from parallax.domain import HistoryPage, HttpResponse, ParsedBatch, RequestSpec
+
+if TYPE_CHECKING:
+    from parallax.config import Source
 
 
 class SourceAdapter(Protocol):
@@ -122,7 +124,7 @@ class HistoricalAdapter(Protocol):
         ...
 
 
-class AdapterLookup(Protocol):
-    def get(self, name: str) -> Adapter:
-        """Return the registered adapter for a configured name."""
+class AdapterResolver(Protocol):
+    def resolve_source(self, source: Source) -> Adapter:
+        """Resolve and validate the complete source before request construction."""
         ...

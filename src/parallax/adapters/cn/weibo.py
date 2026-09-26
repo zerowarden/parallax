@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from typing import Any
 from urllib.parse import quote
 
 from parallax.adapters.common.http import json_request
 from parallax.adapters.common.parsing import (
     decode_json_object,
+    extracted_batch,
     require_list,
     require_mapping,
     text,
@@ -14,9 +14,11 @@ from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
+    JsonValue,
     ParsedBatch,
     RequestSpec,
 )
+from parallax.numbers import optional_integer
 
 SEARCH_URL_TEMPLATE = "https://s.weibo.com/weibo?q={query}"
 REFERER = "https://weibo.com/"
@@ -55,19 +57,23 @@ class WeiboHotAdapter:
         )
 
         max_items = source.max_items
+        excluded = 0
         candidates: list[HeadlineCandidate] = []
         for entry in entries:
             if not isinstance(entry, dict):
                 continue
-            position = entry.get("realpos")
-            if not isinstance(position, int) or position < 1:
+            if entry.get("is_ad") or entry.get("topic_ad"):
+                excluded += 1
+                continue
+            position = optional_integer(entry.get("realpos"))
+            if position is None or position < 1:
                 continue
             title = text(entry.get("word"))
             if not title:
                 continue
-            metrics: dict[str, Any] = {}
-            heat = entry.get("num")
-            if isinstance(heat, int):
+            metrics: dict[str, JsonValue] = {}
+            heat = optional_integer(entry.get("num"))
+            if heat is not None:
                 metrics["heat"] = heat
             label = text(entry.get("label_name"))
             if label:
@@ -84,4 +90,6 @@ class WeiboHotAdapter:
             )
             if len(candidates) >= max_items:
                 break
-        return ParsedBatch(candidates=tuple(candidates))
+        return extracted_batch(
+            candidates, entries=entries, label="weibo", excluded_count=excluded
+        )

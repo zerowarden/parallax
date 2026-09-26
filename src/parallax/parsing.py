@@ -4,6 +4,8 @@ import email.utils
 import re
 from datetime import UTC, datetime, timedelta
 
+from parallax.numbers import optional_finite_number
+
 _SINCE_PATTERN = re.compile(r"^(\d+)\s*([dwmy])?$", re.IGNORECASE)
 _SINCE_DAYS = {"d": 1, "w": 7, "m": 30, "y": 365}
 
@@ -37,10 +39,13 @@ def parse_timestamp(value: object) -> datetime | None:
         return None
     if isinstance(value, datetime):
         return _as_utc(value)
-    if isinstance(value, (int, float)):
-        return _from_unix(float(value))
+    numeric = optional_finite_number(value)
+    if numeric is not None:
+        return _from_unix(numeric)
+    if not isinstance(value, str):
+        return None
 
-    text = str(value).strip()
+    text = value.strip()
     if not text:
         return None
 
@@ -64,10 +69,10 @@ def parse_timestamp(value: object) -> datetime | None:
     return _as_utc(parsed)
 
 
-def _from_unix(value: float) -> datetime | None:
-    if abs(value) >= 10_000_000_000:
-        value /= 1000.0
+def _from_unix(value: int | float) -> datetime | None:
     try:
+        if abs(value) >= 10_000_000_000:
+            value /= 1000.0
         return datetime.fromtimestamp(value, tz=UTC)
     except (OverflowError, OSError, ValueError):
         return None

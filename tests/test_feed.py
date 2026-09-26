@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
+from parallax.archive import HeadlineRow
+from parallax.domain import EntityKind, ItemKind, ItemVariant
 from parallax.feed import (
     FeedOrder,
     HeadlineGroup,
     build_headline_feed,
     build_headline_groups,
 )
-from parallax.storage import HeadlineRow
 
 
 def _row(
@@ -21,9 +22,9 @@ def _row(
     first_seen_at: str = "2026-09-17T10:05:00+00:00",
     position: int | None = 1,
     item_id: int = 1,
-    item_kind: str = "article",
-    entity_kind: str | None = None,
-    item_variant: str | None = None,
+    item_kind: ItemKind = "article",
+    entity_kind: EntityKind | None = None,
+    item_variant: ItemVariant | None = None,
 ) -> HeadlineRow:
     return HeadlineRow(
         source_id=source_name.casefold(),

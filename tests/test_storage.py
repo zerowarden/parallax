@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 
 from parallax.config import Source
-from parallax.domain import BrowseView, HeadlineCandidate, ValidatedBatch
+from parallax.domain import BrowseView, HeadlineCandidate, ObservedBatch, ValidatedBatch
 from parallax.storage import SCHEMA_VERSION, Storage
 from source_factory import make_source
 
@@ -416,7 +416,9 @@ def test_record_history_stores_items_without_snapshot_or_schedule(
     )
 
     run_id = storage.start_fetch_run(source.id)
-    summary = storage.record_history(source, run_id, batch)
+    summary = storage.record_history(
+        source, run_id, ObservedBatch.from_validated(batch, OBSERVED_AT)
+    )
     runs = storage.recent_fetch_runs()
     snapshots = storage.latest_snapshot_headlines()
     state = storage.get_stream_state(source.id)
@@ -693,6 +695,8 @@ def test_failed_commit_rolls_back_and_preserves_prior_snapshot(tmp_path: Path) -
     )
 
     failing_run = storage.start_fetch_run(source.id)
+    # Deliberately violate the typed metrics contract to inject a storage failure.
+    unserializable: Any = object()
     with pytest.raises(TypeError):
         storage.record_success(
             source,
@@ -705,7 +709,7 @@ def test_failed_commit_rolls_back_and_preserves_prior_snapshot(tmp_path: Path) -
                         url="https://example.com/2",
                         external_id="item-2",
                         position=1,
-                        metrics={"bad": object()},
+                        metrics={"bad": unserializable},
                     ),
                 ),
                 rejected_count=0,

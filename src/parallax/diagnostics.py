@@ -2,17 +2,30 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
 from datetime import datetime
 from urllib.parse import urlsplit
 
 import httpx
 
-from parallax.adapters.base import AdapterLookup
-from parallax.adapters.execution import AdapterRefresh, run_adapter_refresh
+from parallax.adapters.base import AdapterResolver
+from parallax.adapters.execution import run_adapter_refresh
+from parallax.adapters.results import NotModifiedRefresh, RefreshOutcome
+from parallax.archive import SourceHealthReader
 from parallax.config import Source
+from parallax.diagnostic_models import (
+    ACCESS_BLOCKED,
+    CONFIGURATION_BROKEN,
+    HEALTHY,
+    NETWORK_FAILING,
+    QUIET,
+    RATE_LIMITED,
+    SCHEMA_BROKEN,
+    UPSTREAM_ERROR,
+    DiagnosticClassification,
+    ResponseDiagnostic,
+    SourceDiagnostic,
+)
 from parallax.domain import HttpResponse, RequestSpec, StreamState
-from parallax.storage import Storage
 from parallax.transport import ResponseTooLargeError, Transport
 from parallax.validation import BatchValidationError, BatchValidator
 
@@ -30,65 +43,7 @@ SAFE_RESPONSE_HEADERS = frozenset(
     }
 )
 
-HEALTHY = "healthy"
-QUIET = "quiet"
-RATE_LIMITED = "rate-limited"
-ACCESS_BLOCKED = "access-blocked"
-SCHEMA_BROKEN = "schema-broken"
-NETWORK_FAILING = "network-failing"
-CONFIGURATION_BROKEN = "configuration-broken"
-UPSTREAM_ERROR = "upstream-error"
-
-_PROBLEM_CLASSIFICATIONS = frozenset(
-    {
-        RATE_LIMITED,
-        ACCESS_BLOCKED,
-        SCHEMA_BROKEN,
-        NETWORK_FAILING,
-        CONFIGURATION_BROKEN,
-        UPSTREAM_ERROR,
-    }
-)
-
 _ERROR_MESSAGE_LIMIT = 500
-
-
-@dataclass(frozen=True, slots=True)
-class ResponseDiagnostic:
-    """Bounded, secret-free view of one upstream response."""
-
-    status_code: int
-    content_type: str | None
-    byte_count: int
-    headers: Mapping[str, str]
-
-
-@dataclass(frozen=True, slots=True)
-class SourceDiagnostic:
-    source_id: str
-    name: str
-    adapter: str
-    upstream_host: str
-    last_attempt_at: datetime | None
-    last_success_at: datetime | None
-    last_change_at: datetime | None
-    consecutive_failures: int
-    classification: str
-    detail: str
-    responses: tuple[ResponseDiagnostic, ...] = ()
-    accepted_count: int | None = None
-    rejected_count: int | None = None
-    warnings: tuple[str, ...] = ()
-    error_type: str | None = None
-    error_message: str | None = None
-
-    @property
-    def healthy(self) -> bool:
-        return self.classification == HEALTHY
-
-    @property
-    def has_problem(self) -> bool:
-        return self.classification in _PROBLEM_CLASSIFICATIONS
 
 
 class DiagnosticService:
@@ -101,9 +56,9 @@ class DiagnosticService:
 
     def __init__(
         self,
-        storage: Storage,
+        storage: SourceHealthReader,
         transport: Transport,
-        adapters: AdapterLookup,
+        adapters: AdapterResolver,
         validator: BatchValidator,
     ) -> None:
         self._storage = storage
@@ -115,8 +70,8 @@ class DiagnosticService:
         state = self._storage.get_stream_state(source.id)
         last_change = self._storage.last_content_change_at(source.id)
         try:
-            adapter = self._adapters.get(source.endpoint.adapter)
-        except KeyError as exc:
+            adapter = self._adapters.resolve_source(source)
+        except (KeyError, ValueError) as exc:
             return self._finish(
                 source,
                 state,
@@ -152,7 +107,7 @@ class DiagnosticService:
                 detail="response exceeded the configured size limit",
             )
         except (ValueError, RuntimeError) as exc:
-            classification = (
+            classification: DiagnosticClassification = (
                 SCHEMA_BROKEN if recorder.responses else CONFIGURATION_BROKEN
             )
             detail = (
@@ -178,10 +133,10 @@ class DiagnosticService:
         state: StreamState,
         last_change: datetime | None,
         recorder: _RecordingTransport,
-        refresh: AdapterRefresh,
+        refresh: RefreshOutcome,
     ) -> SourceDiagnostic:
         host = _upstream_host(recorder.responses, source)
-        if refresh.not_modified:
+        if isinstance(refresh, NotModifiedRefresh):
             return self._finish(
                 source,
                 state,
@@ -192,7 +147,6 @@ class DiagnosticService:
                 responses=_response_diagnostics(recorder.responses),
             )
 
-        assert refresh.batch is not None
         parsed_count = len(refresh.batch.candidates)
         try:
             validated = self._validator.validate(
@@ -217,6 +171,7 @@ class DiagnosticService:
                 error_message=str(exc)[:_ERROR_MESSAGE_LIMIT],
             )
 
+        classification: DiagnosticClassification
         if validated.candidates:
             classification = HEALTHY
             detail = f"accepted {len(validated.candidates)} headline item(s)"
@@ -265,7 +220,7 @@ class DiagnosticService:
         recorder: _RecordingTransport,
         exc: Exception,
         *,
-        classification: str,
+        classification: DiagnosticClassification,
         detail: str,
     ) -> SourceDiagnostic:
         return self._finish(
@@ -286,7 +241,7 @@ class DiagnosticService:
         state: StreamState,
         last_change: datetime | None,
         *,
-        classification: str,
+        classification: DiagnosticClassification,
         detail: str,
         upstream_host: str,
         responses: tuple[ResponseDiagnostic, ...] = (),
@@ -345,7 +300,7 @@ class _RecordingTransport:
         return response
 
 
-def _classify_status(status: int) -> str:
+def _classify_status(status: int) -> DiagnosticClassification:
     if status == 429:
         return RATE_LIMITED
     if status in {401, 403}:

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-from typing import Any
 from urllib.parse import urljoin, urlsplit
 
 from selectolax.parser import HTMLParser
@@ -16,6 +15,7 @@ from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
+    JsonValue,
     ParsedBatch,
     RequestSpec,
 )
@@ -51,7 +51,7 @@ class GelonghuiNewsAdapter:
             spans = row.css(".time > span")
             category = spans[0].text(strip=True) if spans else ""
             raw_published = spans[2].text(strip=True) if len(spans) > 2 else ""
-            metrics: dict[str, Any] = {}
+            metrics: dict[str, JsonValue] = {}
             if category:
                 metrics["category"] = category
             url = urljoin(BASE_URL, href)

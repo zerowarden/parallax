@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
-import math
 import re
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta, timezone
 from typing import Any
+
+from parallax.domain import HeadlineCandidate, ParsedBatch
+from parallax.numbers import optional_finite_number
 
 CHINA_STANDARD_TIME = timezone(timedelta(hours=8))
 
@@ -70,9 +73,7 @@ def scalar_text(value: object) -> str:
     """Read a textual or numeric ID, timestamp, or count explicitly as text."""
     if value is None or isinstance(value, str):
         return text(value)
-    if isinstance(value, bool):
-        raise ValueError("Expected upstream string or number, got bool")
-    if isinstance(value, int) or isinstance(value, float) and math.isfinite(value):
+    if optional_finite_number(value) is not None:
         return str(value)
     raise ValueError(f"Expected upstream string or number, got {type(value).__name__}")
 
@@ -135,3 +136,20 @@ def parse_relative_time(value: str, *, now: datetime | None = None) -> datetime 
             microsecond=0,
         ).astimezone(UTC)
     return None
+
+
+def extracted_batch(
+    candidates: Sequence[HeadlineCandidate],
+    *,
+    entries: Sequence[object],
+    label: str,
+    excluded_count: int = 0,
+) -> ParsedBatch:
+    """Keep failed extraction distinct from an empty eligible container.
+
+    Callers count deliberate exclusions (ads, unsupported content, old history).
+    Candidate validity and genuine empty-batch policy belong to validation.
+    """
+    if len(entries) > excluded_count and not candidates:
+        raise ValueError(f"{label} contains entries but no usable headline candidates")
+    return ParsedBatch(candidates=tuple(candidates))

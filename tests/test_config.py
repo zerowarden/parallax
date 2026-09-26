@@ -9,8 +9,8 @@ import pytest
 from pydantic import ValidationError
 
 from parallax import __version__
-from parallax.adapters import AdapterRegistry
 from parallax.adapters.common.options import option_int
+from parallax.adapters.registry import AdapterRegistry
 from parallax.config import (
     AppConfig,
     AuthConfig,
@@ -45,7 +45,7 @@ def test_checked_in_catalog_loads_and_uses_known_adapters() -> None:
     config = _catalog()
     registry = AdapterRegistry()
     for source in config.sources:
-        registry.validate_source(source)
+        registry.resolve_source(source)
 
 
 def test_catalog_lookup_keeps_disabled_sources_but_enabled_selection_omits_them() -> (
@@ -179,11 +179,11 @@ def test_registry_rejects_unknown_adapter_and_options() -> None:
     source = make_source(options={"history_max_page": 10})
 
     with pytest.raises(ValueError, match="Unknown options.*history_max_page"):
-        registry.validate_source(source)
+        registry.resolve_source(source)
 
     missing = make_source(adapter="missing")
     with pytest.raises(KeyError, match="Unknown adapter"):
-        registry.validate_source(missing)
+        registry.resolve_source(missing)
 
 
 @pytest.mark.parametrize("value", [True, 1.5, "5", 0, -1])
@@ -418,3 +418,19 @@ def test_loaded_sources_are_frozen() -> None:
         cast(Any, source.endpoint.options)["test"] = True
 
     assert isinstance(source, Source)
+
+
+@pytest.mark.parametrize("name", ["douyin_hot", "xueqiu_hotstock"])
+def test_fixed_bootstrap_protocol_rejects_ignored_endpoint_overrides(name: str) -> None:
+    from parallax.adapters.cn.douyin import HOT_URL as DOUYIN_HOT_URL
+    from parallax.adapters.cn.xueqiu import HOT_URL as XUEQIU_HOT_URL
+
+    url = DOUYIN_HOT_URL if name == "douyin_hot" else XUEQIU_HOT_URL
+    registry = AdapterRegistry()
+    assert registry.resolve_source(make_source(adapter=name, url=url)) is not None
+    with pytest.raises(ValueError, match="endpoint overrides are unsupported"):
+        registry.resolve_source(make_source(adapter=name, url="https://override.test/"))
+    with pytest.raises(ValueError, match="Unknown options"):
+        registry.resolve_source(
+            make_source(adapter=name, url=url, options={"unsupported": 1})
+        )

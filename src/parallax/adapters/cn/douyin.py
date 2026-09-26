@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any
 
 from parallax.adapters.base import AdapterStep, CompleteStep, ContinueStep
 from parallax.adapters.common.http import cookie_header
+from parallax.adapters.common.options import fixed_endpoint_options
 from parallax.adapters.common.parsing import (
     decode_json_object,
     require_list,
@@ -15,9 +15,11 @@ from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
+    JsonValue,
     ParsedBatch,
     RequestSpec,
 )
+from parallax.numbers import optional_finite_number
 
 LOGIN_URL = "https://login.douyin.com/"
 HOT_URL = (
@@ -29,6 +31,10 @@ BROWSER_USER_AGENT = (
     "(KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
 )
 DETAIL_URL_TEMPLATE = "https://www.douyin.com/hot/{sentence_id}"
+
+
+def validate_config(source: Source) -> None:
+    fixed_endpoint_options(source, HOT_URL)
 
 
 class DouyinHotAdapter:
@@ -59,7 +65,7 @@ class DouyinHotAdapter:
             return ContinueStep(
                 request=RequestSpec(
                     method="GET",
-                    url=HOT_URL,
+                    url=source.endpoint.url,
                     headers={
                         "User-Agent": BROWSER_USER_AGENT,
                         "Cookie": cookie_header(response.cookies),
@@ -89,12 +95,12 @@ def _parse_hot(source: Source, response: HttpResponse) -> ParsedBatch:
         title = text(entry.get("word"))
         if not sentence_id or not title:
             continue
-        metrics: dict[str, Any] = {}
-        hot_value = entry.get("hot_value")
-        if isinstance(hot_value, (int, float)) and not isinstance(hot_value, bool):
+        metrics: dict[str, JsonValue] = {}
+        hot_value = optional_finite_number(entry.get("hot_value"))
+        if hot_value is not None:
             metrics["hot_value"] = hot_value
-        event_time = entry.get("event_time")
-        if isinstance(event_time, (int, float)) and not isinstance(event_time, bool):
+        event_time = optional_finite_number(entry.get("event_time"))
+        if event_time is not None:
             metrics["event_time"] = event_time
         candidates.append(
             HeadlineCandidate(

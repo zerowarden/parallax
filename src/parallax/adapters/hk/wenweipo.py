@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-from typing import Any
 from urllib.parse import urljoin, urlsplit
 
 from selectolax.parser import HTMLParser
@@ -16,6 +15,7 @@ from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
+    JsonValue,
     ParsedBatch,
     RequestSpec,
 )
@@ -52,7 +52,7 @@ class WenweipoNewsAdapter:
             seen.add(href)
             article_match = ARTICLE_PATH.search(urlsplit(href).path)
 
-            metrics: dict[str, Any] = {}
+            metrics: dict[str, JsonValue] = {}
             age_node = card.css_first("time.time")
             raw_published = age_node.text(strip=True) if age_node is not None else ""
             candidates.append(

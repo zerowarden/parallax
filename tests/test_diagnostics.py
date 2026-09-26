@@ -9,10 +9,10 @@ import httpx
 import pytest
 from rich.console import Console
 
-from parallax.adapters import AdapterRegistry
-from parallax.adapters.base import AdapterLookup
+from parallax.adapters.base import AdapterResolver
+from parallax.adapters.registry import AdapterRegistry
 from parallax.config import IngestionConfig, Source, ValidationConfig
-from parallax.diagnostics import (
+from parallax.diagnostic_models import (
     ACCESS_BLOCKED,
     CONFIGURATION_BROKEN,
     HEALTHY,
@@ -21,9 +21,9 @@ from parallax.diagnostics import (
     RATE_LIMITED,
     SCHEMA_BROKEN,
     UPSTREAM_ERROR,
-    DiagnosticService,
     SourceDiagnostic,
 )
+from parallax.diagnostics import DiagnosticService
 from parallax.domain import HttpResponse, RequestSpec, StreamState
 from parallax.ingest import IngestionService
 from parallax.presentation import Presenter
@@ -84,7 +84,7 @@ def _response(
 def _service(
     tmp_path: Path,
     transport: ScriptedTransport,
-    adapters: AdapterLookup | None = None,
+    adapters: AdapterResolver | None = None,
 ) -> tuple[DiagnosticService, Storage]:
     storage = Storage(tmp_path / "parallax.db")
     storage.initialize()
@@ -413,3 +413,23 @@ def test_status_classification(
     storage.close()
 
     assert diagnostic.classification == expected
+
+
+@pytest.mark.parametrize(
+    "options",
+    [{"history_max_pages": 0}, {"history_max_pages": "3"}, {"history_max_page": 3}],
+)
+def test_diagnostics_reject_invalid_options_before_http(
+    tmp_path: Path, options: dict[str, object]
+) -> None:
+    source = make_source(adapter="now_news", options=options)
+    transport = ScriptedTransport(
+        [_response(source, b'[{"newsId": 1, "title": "Title"}]')]
+    )
+    service, storage = _service(tmp_path, transport)
+    try:
+        diagnostic = service.diagnose(source)
+        assert diagnostic.classification == CONFIGURATION_BROKEN
+        assert not transport.requests
+    finally:
+        storage.close()

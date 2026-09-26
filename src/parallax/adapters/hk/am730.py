@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-from typing import Any
 from urllib.parse import urljoin
 
 from selectolax.parser import HTMLParser
@@ -16,6 +15,7 @@ from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
+    JsonValue,
     ParsedBatch,
     RequestSpec,
 )
@@ -51,7 +51,7 @@ class Am730NewsAdapter:
                 continue
             seen.add(href)
 
-            metrics: dict[str, Any] = {}
+            metrics: dict[str, JsonValue] = {}
             section = card.css_first(".newsitem-unit a")
             section_name = section.text(strip=True) if section is not None else ""
             if section_name:

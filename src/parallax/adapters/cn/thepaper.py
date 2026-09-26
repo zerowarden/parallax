@@ -1,16 +1,21 @@
 from __future__ import annotations
 
-from typing import Any
-
 from parallax.adapters.common.http import json_request
-from parallax.adapters.common.parsing import decode_json_object, scalar_text, text
+from parallax.adapters.common.parsing import (
+    decode_json_object,
+    extracted_batch,
+    scalar_text,
+    text,
+)
 from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
+    JsonValue,
     ParsedBatch,
     RequestSpec,
 )
+from parallax.numbers import optional_integer
 from parallax.parsing import parse_timestamp
 
 
@@ -38,9 +43,10 @@ class ThePaperHotAdapter:
             cont_id = scalar_text(item.get("contId"))
             title = text(item.get("name"))
             raw_published = item.get("pubTimeLong")
-            metrics: dict[str, Any] = {}
-            if item.get("praiseTimes") is not None:
-                metrics["praise_times"] = item.get("praiseTimes")
+            metrics: dict[str, JsonValue] = {}
+            praise_times = optional_integer(item.get("praiseTimes"))
+            if praise_times is not None:
+                metrics["praise_times"] = praise_times
 
             candidates.append(
                 HeadlineCandidate(
@@ -60,4 +66,4 @@ class ThePaperHotAdapter:
                 )
             )
 
-        return ParsedBatch(candidates=tuple(candidates))
+        return extracted_batch(candidates, entries=hot_news, label="thepaper")

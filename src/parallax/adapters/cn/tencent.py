@@ -3,6 +3,7 @@ from __future__ import annotations
 from parallax.adapters.common.http import json_request
 from parallax.adapters.common.parsing import (
     decode_json_object,
+    extracted_batch,
     parse_china_timestamp,
     require_list,
     require_mapping,
@@ -65,4 +66,4 @@ class TencentHotAdapter:
                     position=position,
                 )
             )
-        return ParsedBatch(candidates=tuple(candidates))
+        return extracted_batch(candidates, entries=articles, label="tencent")

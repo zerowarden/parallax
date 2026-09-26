@@ -8,6 +8,7 @@ from urllib.parse import quote
 from parallax.adapters.common.http import json_request
 from parallax.adapters.common.parsing import (
     decode_json_object,
+    extracted_batch,
     require_list,
     require_mapping,
     scalar_text,
@@ -17,9 +18,11 @@ from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
+    JsonValue,
     ParsedBatch,
     RequestSpec,
 )
+from parallax.numbers import optional_finite_number, optional_integer
 from parallax.parsing import parse_timestamp
 
 SEARCH_URL_TEMPLATE = "https://search.bilibili.com/all?keyword={keyword}"
@@ -52,9 +55,9 @@ class BilibiliHotSearchAdapter:
             if not isinstance(item, dict):
                 continue
             keyword = text(item.get("keyword"))
-            metrics: dict[str, Any] = {}
-            heat_score = item.get("heat_score")
-            if isinstance(heat_score, (int, float)):
+            metrics: dict[str, JsonValue] = {}
+            heat_score = optional_finite_number(item.get("heat_score"))
+            if heat_score is not None:
                 metrics["heat_score"] = heat_score
             candidates.append(
                 HeadlineCandidate(
@@ -69,7 +72,7 @@ class BilibiliHotSearchAdapter:
                     metrics=metrics,
                 )
             )
-        return ParsedBatch(candidates=tuple(candidates))
+        return extracted_batch(candidates, entries=items, label="Bilibili search")
 
 
 class BilibiliHotVideoAdapter:
@@ -100,7 +103,7 @@ class BilibiliHotVideoAdapter:
             candidate = _video_candidate(item, position=len(candidates) + 1)
             if candidate is None:
                 continue
-            metrics: dict[str, Any] = {}
+            metrics: dict[str, JsonValue] = {}
             owner = item.get("owner")
             if isinstance(owner, dict):
                 author = text(owner.get("name"))
@@ -109,8 +112,8 @@ class BilibiliHotVideoAdapter:
             stat = item.get("stat")
             if isinstance(stat, dict):
                 for key in ("view", "like"):
-                    value = stat.get(key)
-                    if isinstance(value, int):
+                    value = optional_integer(stat.get(key))
+                    if value is not None:
                         metrics[key] = value
             raw_published = scalar_text(item.get("pubdate"))
             candidates.append(
@@ -155,13 +158,13 @@ class BilibiliRankingAdapter:
             candidate = _video_candidate(item, position=len(candidates) + 1)
             if candidate is None:
                 continue
-            metrics: dict[str, Any] = {}
+            metrics: dict[str, JsonValue] = {}
             author = text(item.get("author"))
             if author:
                 metrics["author"] = author
             for key in ("play", "pts"):
-                value = item.get(key)
-                if isinstance(value, int):
+                value = optional_integer(item.get(key))
+                if value is not None:
                     metrics[key] = value
             candidates.append(replace(candidate, metrics=metrics))
             if len(candidates) >= max_items:

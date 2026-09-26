@@ -7,6 +7,7 @@ from typing import Any
 from parallax.adapters.common.http import json_request
 from parallax.adapters.common.parsing import (
     decode_json_object,
+    extracted_batch,
     require_list,
     require_mapping,
     scalar_text,
@@ -16,9 +17,11 @@ from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
+    JsonValue,
     ParsedBatch,
     RequestSpec,
 )
+from parallax.numbers import optional_integer
 from parallax.parsing import parse_timestamp
 
 LIVE_CHANNEL = "global-channel"
@@ -31,10 +34,10 @@ class _Fields:
     url: str
     external_id: str | None
     raw_published_at: str
-    metrics: Mapping[str, Any]
+    metrics: Mapping[str, JsonValue]
 
 
-_Extractor = Callable[[dict[str, Any], Source], _Fields | None]
+_Extractor = Callable[[dict[str, Any]], _Fields | None]
 
 
 class WallstreetcnQuickAdapter:
@@ -115,12 +118,16 @@ def _batch(
     extract: _Extractor,
 ) -> ParsedBatch:
     max_items = source.max_items
+    excluded = 0
     candidates: list[HeadlineCandidate] = []
     for entry in entries:
         if not isinstance(entry, dict):
             continue
-        fields = extract(entry, source)
-        if fields is None or not fields.title or not fields.url:
+        fields = extract(entry)
+        if fields is None:
+            excluded += 1
+            continue
+        if not fields.title or not fields.url:
             continue
         candidates.append(
             HeadlineCandidate(
@@ -135,10 +142,12 @@ def _batch(
         )
         if len(candidates) >= max_items:
             break
-    return ParsedBatch(candidates=tuple(candidates))
+    return extracted_batch(
+        candidates, entries=entries, label="WallstreetCN", excluded_count=excluded
+    )
 
 
-def _live_fields(entry: dict[str, Any], source: Source) -> _Fields:
+def _live_fields(entry: dict[str, Any]) -> _Fields:
     return _Fields(
         title=text(entry.get("title")) or text(entry.get("content_text")),
         url=text(entry.get("uri")),
@@ -148,12 +157,12 @@ def _live_fields(entry: dict[str, Any], source: Source) -> _Fields:
     )
 
 
-def _news_fields(entry: dict[str, Any], source: Source) -> _Fields | None:
+def _news_fields(entry: dict[str, Any]) -> _Fields | None:
     if text(entry.get("resource_type")) in NEWS_EXCLUDED_RESOURCE_TYPES:
         return None
     resource = entry.get("resource")
     if not isinstance(resource, dict):
-        return None
+        raise ValueError("WallstreetCN news entry does not contain a resource object")
     if text(resource.get("type")) == "live":
         return None
     return _Fields(
@@ -165,10 +174,10 @@ def _news_fields(entry: dict[str, Any], source: Source) -> _Fields | None:
     )
 
 
-def _hot_fields(entry: dict[str, Any], source: Source) -> _Fields | None:
-    metrics: dict[str, Any] = {}
-    pageviews = entry.get("pageviews")
-    if isinstance(pageviews, int):
+def _hot_fields(entry: dict[str, Any]) -> _Fields | None:
+    metrics: dict[str, JsonValue] = {}
+    pageviews = optional_integer(entry.get("pageviews"))
+    if pageviews is not None:
         metrics["pageviews"] = pageviews
     return _Fields(
         title=text(entry.get("title")),

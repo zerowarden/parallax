@@ -64,7 +64,6 @@ class HketRssAdapter:
         for response in responses:
             for candidate in parse_feed_candidates(
                 response.content,
-                source,
                 label="Hket feed",
             ):
                 key = candidate.external_id or candidate.url

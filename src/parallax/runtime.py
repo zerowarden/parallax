@@ -4,18 +4,17 @@ from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
 from types import TracebackType
-from typing import Self
+from typing import TYPE_CHECKING, Self
 
-from parallax.adapters import AdapterRegistry
 from parallax.config import ResolvedConfig, SourceCatalog, load_catalog
 from parallax.config.loader import load_archive_config
-from parallax.diagnostics import DiagnosticService
-from parallax.ingest import IngestionService
-from parallax.logging_setup import configure_logging
-from parallax.scheduler import Scheduler
-from parallax.storage import Storage, collector_lock
-from parallax.transport import HttpTransport
-from parallax.validation import BatchValidator
+
+if TYPE_CHECKING:
+    from parallax.diagnostics import DiagnosticService
+    from parallax.ingest import IngestionService
+    from parallax.scheduler import Scheduler
+    from parallax.storage import Storage
+    from parallax.transport import HttpTransport
 
 
 @dataclass(slots=True)
@@ -44,6 +43,8 @@ class ArchiveRuntime(_OwnedResources):
 
     @classmethod
     def build(cls, config_path: Path) -> ArchiveRuntime:
+        from parallax.storage import Storage
+
         config = load_archive_config(config_path)
         with ExitStack() as resources:
             storage = Storage(config.database_path, read_only=True)
@@ -59,6 +60,12 @@ class DiagnosticRuntime(_OwnedResources):
 
     @classmethod
     def build(cls, config_path: Path) -> DiagnosticRuntime:
+        from parallax.adapters.registry import AdapterRegistry
+        from parallax.diagnostics import DiagnosticService
+        from parallax.storage import Storage
+        from parallax.transport import HttpTransport
+        from parallax.validation import BatchValidator
+
         config = load_catalog(config_path)
         with ExitStack() as resources:
             storage = Storage(config.app.database_path, read_only=True)
@@ -76,15 +83,22 @@ class Runtime(_OwnedResources):
     storage: Storage
     transport: HttpTransport
     ingestion: IngestionService
-    diagnostics: DiagnosticService
     scheduler: Scheduler
 
     @classmethod
     def build(cls, config_path: Path) -> Runtime:
+        from parallax.adapters.registry import AdapterRegistry
+        from parallax.ingest import IngestionService
+        from parallax.logging_setup import configure_logging
+        from parallax.scheduler import Scheduler
+        from parallax.storage import Storage, collector_lock
+        from parallax.transport import HttpTransport
+        from parallax.validation import BatchValidator
+
         config = load_catalog(config_path)
         adapters = AdapterRegistry()
         for source in config.sources:
-            adapters.validate_source(source)
+            adapters.resolve_source(source)
         configure_logging(config.app.log_level, config.app.log_path)
         with ExitStack() as resources:
             resources.enter_context(collector_lock(config.app.database_path))
@@ -106,7 +120,6 @@ class Runtime(_OwnedResources):
                 ingestion=ingestion,
                 config=config.scheduler,
             )
-            diagnostics = DiagnosticService(storage, transport, adapters, validator)
             storage.recover_abandoned_runs()
             storage.sync_sources(config.sources)
             return cls(
@@ -115,6 +128,5 @@ class Runtime(_OwnedResources):
                 storage,
                 transport,
                 ingestion,
-                diagnostics,
                 scheduler,
             )

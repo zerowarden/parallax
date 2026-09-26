@@ -31,6 +31,7 @@ from parallax.domain import (
     StreamKind,
     validate_item_classification,
 )
+from parallax.urls import parse_http_url
 
 SOURCE_ID_PATTERN = r"^[a-z0-9][a-z0-9-]*$"
 type OptionValue = str | int | float | bool
@@ -168,17 +169,6 @@ class RedirectPolicyConfig(ConfigModel):
         return tuple(normalized)
 
 
-def validate_http_url(value: str) -> str:
-    try:
-        split = urlsplit(value)
-        _ = split.port
-    except ValueError as exc:
-        raise ValueError("URL contains an invalid port") from exc
-    if split.scheme not in {"http", "https"} or not split.hostname:
-        raise ValueError("URL must be an absolute HTTP(S) URL")
-    return value
-
-
 class Endpoint(ConfigModel):
     adapter: str = Field(min_length=1)
     url: str = Field(min_length=1)
@@ -187,7 +177,8 @@ class Endpoint(ConfigModel):
     @field_validator("url")
     @classmethod
     def validate_url(cls, value: str) -> str:
-        return validate_http_url(value)
+        parse_http_url(value)
+        return value
 
     @field_validator("options")
     @classmethod

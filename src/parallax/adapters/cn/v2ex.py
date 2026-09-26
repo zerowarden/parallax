@@ -6,6 +6,7 @@ from typing import Any
 from parallax.adapters.common.http import JSON_ACCEPT
 from parallax.adapters.common.parsing import (
     decode_json_object,
+    extracted_batch,
     require_list,
     scalar_text,
     text,
@@ -45,6 +46,7 @@ class V2exShareAdapter:
         source: Source,
         responses: tuple[HttpResponse, ...],
     ) -> ParsedBatch:
+        raw_entries: list[object] = []
         entries: list[dict[str, Any]] = []
         for response in responses:
             payload = decode_json_object(response.content, label="V2EX")
@@ -52,6 +54,7 @@ class V2exShareAdapter:
                 payload.get("items"),
                 "V2EX feed does not contain an items list",
             )
+            raw_entries.extend(items)
             entries.extend(item for item in items if isinstance(item, dict))
         entries.sort(key=_sort_key, reverse=True)
 
@@ -69,7 +72,7 @@ class V2exShareAdapter:
                     position=position,
                 )
             )
-        return ParsedBatch(candidates=tuple(candidates))
+        return extracted_batch(candidates, entries=raw_entries, label="v2ex")
 
 
 def _sort_key(entry: dict[str, Any]) -> datetime:

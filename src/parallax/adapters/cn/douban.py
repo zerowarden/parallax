@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from typing import Any
-
 from parallax.adapters.common.http import json_request
 from parallax.adapters.common.parsing import (
     decode_json_object,
+    extracted_batch,
     require_list,
     scalar_text,
     text,
@@ -13,9 +12,11 @@ from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
+    JsonValue,
     ParsedBatch,
     RequestSpec,
 )
+from parallax.numbers import optional_finite_number
 
 SUBJECT_URL_TEMPLATE = "https://movie.douban.com/subject/{movie_id}"
 
@@ -42,11 +43,11 @@ class DoubanHotMoviesAdapter:
             if not isinstance(item, dict):
                 continue
             movie_id = scalar_text(item.get("id"))
-            metrics: dict[str, Any] = {}
+            metrics: dict[str, JsonValue] = {}
             rating = item.get("rating")
             if isinstance(rating, dict):
-                value = rating.get("value")
-                if isinstance(value, (int, float)):
+                value = optional_finite_number(rating.get("value"))
+                if value is not None:
                     metrics["rating"] = value
             candidates.append(
                 HeadlineCandidate(
@@ -61,4 +62,4 @@ class DoubanHotMoviesAdapter:
                     metrics=metrics,
                 )
             )
-        return ParsedBatch(candidates=tuple(candidates))
+        return extracted_batch(candidates, entries=items, label="douban")

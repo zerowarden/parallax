@@ -22,6 +22,7 @@ from parallax.domain import (
     ParsedBatch,
     RequestSpec,
 )
+from parallax.numbers import optional_finite_number
 from parallax.parsing import parse_timestamp
 
 DETAIL_URL_TEMPLATE = "https://www.cls.cn/detail/{article_id}"
@@ -158,6 +159,7 @@ def _candidates(
 
 
 def _published_at(value: object) -> datetime | None:
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
+    numeric = optional_finite_number(value)
+    if numeric is None:
         return None
-    return parse_timestamp(value * 1000)
+    return parse_timestamp(numeric * 1000)

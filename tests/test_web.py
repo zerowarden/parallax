@@ -9,6 +9,7 @@ from typing import cast
 import pytest
 from flask.testing import FlaskClient
 
+from parallax.archive import HeadlineRow
 from parallax.config import Source
 from parallax.domain import (
     BrowseSurface,
@@ -19,7 +20,7 @@ from parallax.domain import (
     ValidatedBatch,
 )
 from parallax.feed import PAGE_SIZE, browse_items
-from parallax.storage import HeadlineRow, Storage
+from parallax.storage import Storage
 from parallax.web import (
     create_app,
     format_relative,

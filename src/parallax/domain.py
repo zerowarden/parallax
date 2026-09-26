@@ -3,7 +3,11 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Literal, TypeGuard, get_args
+from typing import Literal, TypeGuard, get_args
+
+type JsonValue = (
+    None | str | int | float | bool | list[JsonValue] | dict[str, JsonValue]
+)
 
 ItemKind = Literal[
     "article",
@@ -121,7 +125,7 @@ class HeadlineCandidate:
     published_at: datetime | None = None
     raw_published_at: str | None = None
     position: int | None = None
-    metrics: Mapping[str, Any] = field(default_factory=dict)
+    metrics: Mapping[str, JsonValue] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,6 +139,38 @@ class ValidatedBatch:
     candidates: tuple[HeadlineCandidate, ...]
     rejected_count: int
     warnings: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class ObservedCandidate:
+    """A validated candidate tied to the HTTP response that observed it."""
+
+    candidate: HeadlineCandidate
+    observed_at: datetime
+
+    def __post_init__(self) -> None:
+        if self.observed_at.tzinfo is None:
+            raise ValueError("observed_at must be timezone-aware")
+
+
+@dataclass(frozen=True, slots=True)
+class ObservedBatch:
+    observations: tuple[ObservedCandidate, ...]
+    rejected_count: int
+    warnings: tuple[str, ...] = ()
+
+    @classmethod
+    def from_validated(
+        cls, batch: ValidatedBatch, observed_at: datetime
+    ) -> ObservedBatch:
+        return cls(
+            tuple(
+                ObservedCandidate(candidate, observed_at)
+                for candidate in batch.candidates
+            ),
+            batch.rejected_count,
+            batch.warnings,
+        )
 
 
 @dataclass(frozen=True, slots=True)

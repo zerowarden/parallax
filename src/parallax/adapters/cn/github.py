@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Any
-
 from selectolax.parser import HTMLParser
 
 from parallax.adapters.common.http import html_request
@@ -10,6 +8,7 @@ from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
+    JsonValue,
     ParsedBatch,
     RequestSpec,
 )
@@ -43,7 +42,7 @@ class GithubTrendingAdapter:
                 continue
             star_node = row.css_first("[href$='stargazers']")
             stars = text(star_node.text(strip=True)) if star_node else ""
-            metrics: dict[str, Any] = {}
+            metrics: dict[str, JsonValue] = {}
             if stars:
                 metrics["stars"] = stars
             candidates.append(

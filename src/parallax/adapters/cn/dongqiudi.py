@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from typing import Any
-
 from parallax.adapters.common.http import json_request
 from parallax.adapters.common.parsing import (
     decode_json_object,
+    extracted_batch,
     parse_china_timestamp,
     require_list,
     scalar_text,
@@ -14,6 +13,7 @@ from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
+    JsonValue,
     ParsedBatch,
     RequestSpec,
 )
@@ -48,7 +48,7 @@ class DongqiudiNewsAdapter:
             if not url and article_id:
                 url = ARTICLE_URL_TEMPLATE.format(article_id=article_id)
             raw_published = text(article.get("created_at"))
-            metrics: dict[str, Any] = {}
+            metrics: dict[str, JsonValue] = {}
             category = text(article.get("category"))
             if category:
                 metrics["category"] = category
@@ -63,4 +63,4 @@ class DongqiudiNewsAdapter:
                     metrics=metrics,
                 )
             )
-        return ParsedBatch(candidates=tuple(candidates))
+        return extracted_batch(candidates, entries=articles, label="dongqiudi")

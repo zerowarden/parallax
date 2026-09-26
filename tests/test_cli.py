@@ -8,10 +8,10 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
+from parallax.archive import HeadlineRow
 from parallax.cli import app
 from parallax.config import Source
-from parallax.domain import IngestionBatchResult, IngestionFailure
-from parallax.storage import HeadlineRow
+from parallax.domain import IngestionBatchResult, IngestionFailure, ItemKind
 from source_factory import make_source
 
 
@@ -28,7 +28,7 @@ def _headline_row(
     published_at: str | None = "2026-09-17T10:00:00+00:00",
     first_seen_at: str = "2026-09-17T10:05:00+00:00",
     item_id: int = 1,
-    item_kind: str = "article",
+    item_kind: ItemKind = "article",
 ) -> HeadlineRow:
     return HeadlineRow(
         source_id=source_name.casefold(),
@@ -470,3 +470,75 @@ assert "flask" not in sys.modules
         [sys.executable, "-c", script], capture_output=True, text=True, check=False
     )
     assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize(
+    "adapter,options,error",
+    [
+        ("missing", "", "Unknown adapter"),
+        (
+            "now_news",
+            "[sources.endpoint.options]\nhistory_max_page = 2",
+            "Unknown options",
+        ),
+        (
+            "now_news",
+            "[sources.endpoint.options]\nhistory_max_pages = 0",
+            "must be positive",
+        ),
+        (
+            "now_news",
+            '[sources.endpoint.options]\nhistory_max_pages = "3"',
+            "must be an integer",
+        ),
+        ("now_news", "[sources.endpoint.options]\nhistory_max_pages = 3", None),
+    ],
+)
+def test_lint_collector_and_diagnostics_share_source_preflight(
+    tmp_path: Path, adapter: str, options: str, error: str | None
+) -> None:
+    from contextlib import closing
+
+    import httpx
+
+    from parallax.adapters.registry import AdapterRegistry
+    from parallax.config import load_catalog
+    from parallax.diagnostics import DiagnosticService
+    from parallax.runtime import Runtime
+    from parallax.storage import Storage
+    from parallax.transport import HttpTransport
+    from parallax.validation import BatchValidator
+
+    config_path = _write_catalog(tmp_path, adapter=adapter, options=options)
+    config = load_catalog(config_path)
+    lint = CliRunner().invoke(app, ["config", "lint", "--config", str(config_path)])
+    assert lint.exit_code == (1 if error else 0), lint.output
+    if error:
+        assert error in lint.output
+        with pytest.raises((KeyError, ValueError), match=error):
+            Runtime.build(config_path)
+        assert not config.app.database_path.exists()
+    else:
+        with Runtime.build(config_path):
+            pass
+
+    requests: list[httpx.Request] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json=[{"newsId": 1, "title": "Title"}])
+
+    with (
+        closing(Storage(tmp_path / "diagnostics.db")) as storage,
+        HttpTransport(config.http, backend=httpx.MockTransport(respond)) as transport,
+    ):
+        storage.initialize()
+        diagnostic = DiagnosticService(
+            storage, transport, AdapterRegistry(), BatchValidator(config.validation)
+        ).diagnose(config.sources[0])
+        assert diagnostic.classification == (
+            "configuration-broken" if error else "healthy"
+        )
+        assert len(requests) == (0 if error else 1)
+        if error:
+            assert error in diagnostic.detail

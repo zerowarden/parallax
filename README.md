@@ -88,6 +88,10 @@ hits), with a separate `history_max_items` option (default 1000). It reports
 truncation unless the response establishes exhaustion. No live re-verification
 was performed for these history changes; parser contracts use checked-in
 fixtures. A successful backfill preserves the live snapshot and freshness state.
+Each accepted item retains its originating HTTP page's observation timestamp,
+including microseconds. Duplicate items within a backfill keep the first accepted
+candidate and its timestamp; a later empty page cannot change that provenance.
+Run completion and change-log timestamps record commit time separately.
 
 ## Configuration
 
@@ -129,6 +133,18 @@ uv run parallax config resolve
 uv run parallax config source thepaper-hot
 ```
 
+Douyin and Xueqiu use fixed cookie-bootstrap protocols. For these adapters,
+`endpoint.url` is the API target requested after bootstrap:
+
+- `douyin_hot`: `https://www.douyin.com/aweme/v1/web/hot/search/list/?device_platform=webapp&aid=6383&channel=channel_pc_web&detail_list=1`
+- `xueqiu_hotstock`: `https://stock.xueqiu.com/v5/stock/hot_stock/list.json`
+
+Existing private catalogs using their landing-page URLs must adopt these values.
+The adapters own the bootstrap URLs and required request parameters. Preflight
+rejects unsupported endpoint overrides. The checked-in catalog preserves source
+IDs and the requests these protocols previously sent; no live re-verification
+was performed for this configuration clarification.
+
 The database is a local archive with schema version 1 and no upgrade migrations.
 This format stores fixed-width UTC microseconds, conditional-request identities,
 and history outcomes. Version 0 archives are rejected without modification:
@@ -150,12 +166,26 @@ method, URL, parameters, headers/auth, body, and representation-selection
 settings. A changed request sends no previous validators. Full responses replace
 validator state (including absent headers); matching 304 responses preserve
 omitted validators. Only the hash is persisted, not resolved credentials.
+Header names are case-insensitive. Precedence is adapter declarations, source
+overrides, then resolved authentication; transport applies conditional state
+after composing the effective request. An empty Cookie override suppresses cookies.
 
 RSS/Atom parsing uses `defusedxml` with DTD, entity, and external-reference
 prohibitions enabled; transport response-size limits remain independent.
 
 Adapters require strings for headline text; structured values fail parsing.
 Fields such as numeric IDs, counts, and timestamps opt into scalar conversion.
+Shared numeric refiners exclude booleans and nonfinite numbers; each adapter
+retains its own unit and range rules. Candidate metrics use JSON-compatible values.
+Configuration endpoints, candidate URLs, and browser links share lexical HTTP(S)
+URL validation, including rejection of raw whitespace and control characters.
+
+`validation.allow_empty_batches` permits genuinely empty eligible feeds. A
+nonempty payload with no valid candidates fails and preserves the previous
+snapshot, even with this setting enabled. Adapters validate container structure
+and retain failed-extraction evidence; known non-content entries and history
+outside the requested window are deliberate exclusions. Publisher-specific
+requirements for nonempty surfaces still apply.
 
 ## Development
 
@@ -181,6 +211,28 @@ after the fifth request is valid, while completion before any request cannot
 supply an observation timestamp. Adapter-owned option validators serve both
 catalog linting and history planning; ingestion consumes the validated budgets.
 Resolved configuration and archive readers share the `SourceCatalog` lookup API.
+
+Adapter registrations live in `adapters/registry.py`. Each registration pairs its
+implementation with its source validator. `resolve_source(source)` performs both
+lookup and preflight; lint, collector startup, ingestion, diagnostics, and live
+tests all use it. Invalid diagnostic configuration reports `configuration-broken`
+before making an HTTP request. Source parsers retain their own option semantics.
+
+`adapters/results.py` defines `FullRefresh` and `NotModifiedRefresh`. The executor
+owns execution-shape dispatch, observation time, HTTP status, and validator
+applicability. Full results require a parsed batch; not-modified results carry
+conditional metadata. Combined representations have no stream validators.
+History keeps its separate incremental paging and per-candidate observations.
+
+Archive projections and read capabilities live in `archive.py`; diagnostic
+values live in `diagnostic_models.py`. Feed logic and presentation depend on
+these contracts. Runtime builders import concrete collection services when
+constructing the requested capability, so catalog commands and archive readers
+do not construct a collector. The collector owns no diagnostic service.
+
+Tests can pass `backend=httpx.MockTransport(...)` to `HttpTransport`. Parallax
+still constructs and closes the HTTPX client with its configured policy; tests
+exercise the same header, timeout, redirect, size, retry, and host-pacing paths.
 
 ## License
 MIT

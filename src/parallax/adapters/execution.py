@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime
-
 import httpx
 
 from parallax.adapters.base import (
@@ -12,27 +9,17 @@ from parallax.adapters.base import (
     SourceAdapter,
     SteppedAdapter,
 )
+from parallax.adapters.results import (
+    FullRefresh,
+    NotModifiedRefresh,
+    RefreshOutcome,
+    ResponseValidators,
+)
 from parallax.config import Source
-from parallax.domain import HttpResponse, ParsedBatch, StreamState
+from parallax.domain import HttpResponse, StreamState
 from parallax.transport import Transport
 
 MAX_ADAPTER_STEPS = 5
-
-
-@dataclass(frozen=True, slots=True)
-class AdapterRefresh:
-    """One adapter plan executed through the shared transport."""
-
-    responses: tuple[HttpResponse, ...]
-    batch: ParsedBatch | None = None
-    not_modified: bool = False
-
-    @property
-    def observed_at(self) -> datetime:
-        """The latest HTTP observation made while completing this refresh."""
-        if not self.responses:
-            raise ValueError("Adapter refresh produced no HTTP observation")
-        return max(response.observed_at for response in self.responses)
 
 
 def run_adapter_refresh(
@@ -40,7 +27,7 @@ def run_adapter_refresh(
     source: Source,
     transport: Transport,
     state: StreamState,
-) -> AdapterRefresh:
+) -> RefreshOutcome:
     """Execute an adapter plan without persistence or scheduling decisions."""
     if isinstance(adapter, MultiRequestAdapter):
         return _run_multi_request(adapter, source, transport)
@@ -54,14 +41,18 @@ def _run_single_request(
     source: Source,
     transport: Transport,
     state: StreamState,
-) -> AdapterRefresh:
+) -> RefreshOutcome:
     response = transport.request(adapter.build_request(source), source, state)
     if response.status_code == 304:
-        return AdapterRefresh(responses=(response,), not_modified=True)
+        return NotModifiedRefresh(
+            response.observed_at, ResponseValidators.from_response(response)
+        )
     raise_for_status(response)
-    return AdapterRefresh(
-        responses=(response,),
-        batch=adapter.parse(source, response),
+    return FullRefresh(
+        adapter.parse(source, response),
+        response.observed_at,
+        response.status_code,
+        ResponseValidators.from_response(response),
     )
 
 
@@ -69,7 +60,7 @@ def _run_multi_request(
     adapter: MultiRequestAdapter,
     source: Source,
     transport: Transport,
-) -> AdapterRefresh:
+) -> FullRefresh:
     requests = adapter.build_requests(source)
     if not requests:
         raise ValueError(f"Adapter for {source.id!r} produced no requests")
@@ -80,9 +71,8 @@ def _run_multi_request(
         response = transport.request(request, source, state)
         raise_for_status(response)
         responses.append(response)
-    return AdapterRefresh(
-        responses=tuple(responses),
-        batch=adapter.parse_responses(source, tuple(responses)),
+    return FullRefresh.combined(
+        adapter.parse_responses(source, tuple(responses)), tuple(responses)
     )
 
 
@@ -90,7 +80,7 @@ def _run_stepped(
     adapter: SteppedAdapter,
     source: Source,
     transport: Transport,
-) -> AdapterRefresh:
+) -> FullRefresh:
     state = StreamState(source_id=source.id)
     step = adapter.first_step(source)
     if isinstance(step, CompleteStep):
@@ -102,7 +92,7 @@ def _run_stepped(
         responses.append(response)
         step = adapter.next_step(source, response, step.context)
         if isinstance(step, CompleteStep):
-            return AdapterRefresh(responses=tuple(responses), batch=step.batch)
+            return FullRefresh.combined(step.batch, tuple(responses))
     raise RuntimeError(f"Adapter for {source.id!r} exceeded {MAX_ADAPTER_STEPS} steps")
 
 

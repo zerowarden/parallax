@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from typing import Any
-
 from parallax.adapters.common.http import json_request
 from parallax.adapters.common.parsing import (
     decode_json_object,
+    extracted_batch,
     require_list,
     scalar_text,
     text,
@@ -13,6 +12,7 @@ from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
+    JsonValue,
     ParsedBatch,
     RequestSpec,
 )
@@ -43,7 +43,7 @@ class ToutiaoHotAdapter:
             if not isinstance(item, dict):
                 continue
             cluster_id = scalar_text(item.get("ClusterIdStr"))
-            metrics: dict[str, Any] = {}
+            metrics: dict[str, JsonValue] = {}
             hot_value = scalar_text(item.get("HotValue"))
             if hot_value:
                 metrics["hot_value"] = hot_value
@@ -60,4 +60,4 @@ class ToutiaoHotAdapter:
                     metrics=metrics,
                 )
             )
-        return ParsedBatch(candidates=tuple(candidates))
+        return extracted_batch(candidates, entries=items, label="toutiao")

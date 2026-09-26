@@ -179,9 +179,7 @@ def test_transport_follows_same_authority_redirect_with_headers() -> None:
             return httpx.Response(302, headers={"Location": "/final"})
         return httpx.Response(200, content=b"ok")
 
-    transport = HttpTransport(HttpConfig())
-    transport._client.close()
-    transport._client = httpx.Client(transport=httpx.MockTransport(handler))
+    transport = HttpTransport(HttpConfig(), backend=httpx.MockTransport(handler))
     source = _source(
         "https://example.test/start",
         headers={"X-Api-Key": "secret"},
@@ -213,9 +211,7 @@ def test_transport_rejects_cross_authority_redirect_before_leaking_headers() -> 
             headers={"Location": "https://attacker.test/collect"},
         )
 
-    transport = HttpTransport(HttpConfig())
-    transport._client.close()
-    transport._client = httpx.Client(transport=httpx.MockTransport(handler))
+    transport = HttpTransport(HttpConfig(), backend=httpx.MockTransport(handler))
     source = _source("https://example.test/start")
     source = source.model_copy(
         update={
@@ -247,9 +243,9 @@ def _mock_transport(
     handler: Callable[[httpx.Request], httpx.Response],
     config: HttpConfig | None = None,
 ) -> HttpTransport:
-    transport = HttpTransport(config or HttpConfig())
-    transport._client.close()
-    transport._client = httpx.Client(transport=httpx.MockTransport(handler))
+    transport = HttpTransport(
+        config or HttpConfig(), backend=httpx.MockTransport(handler)
+    )
     return transport
 
 
@@ -875,9 +871,7 @@ def test_conditional_headers_require_matching_effective_request(
         observed.append(request)
         return httpx.Response(200, headers={"etag": '"v1"'}, content=b"ok")
 
-    with HttpTransport(HttpConfig()) as transport:
-        transport._client.close()
-        transport._client = httpx.Client(transport=httpx.MockTransport(respond))
+    with HttpTransport(HttpConfig(), backend=httpx.MockTransport(respond)) as transport:
         first = transport.request(request, source, StreamState(source.id))
         state = StreamState(
             source.id,
@@ -917,9 +911,7 @@ def test_redirect_target_change_does_not_forward_previous_validators() -> None:
             return httpx.Response(302, headers={"location": target})
         return httpx.Response(200, headers={"etag": '"v1"'}, content=b"ok")
 
-    with HttpTransport(HttpConfig()) as transport:
-        transport._client.close()
-        transport._client = httpx.Client(transport=httpx.MockTransport(respond))
+    with HttpTransport(HttpConfig(), backend=httpx.MockTransport(respond)) as transport:
         spec = RequestSpec("GET", source.endpoint.url)
         first = transport.request(spec, source, StreamState(source.id))
         state = StreamState(
@@ -933,3 +925,53 @@ def test_redirect_target_change_does_not_forward_previous_validators() -> None:
         assert "if-none-match" not in observed[-2].headers
         assert "if-none-match" not in observed[-1].headers
         assert first.request_identity != second.request_identity
+
+
+def test_injected_backend_keeps_client_policy_and_owned_close() -> None:
+    from unittest.mock import patch
+
+    class Backend(httpx.BaseTransport):
+        def __init__(self) -> None:
+            self.requests: list[httpx.Request] = []
+            self.closes = 0
+
+        def handle_request(self, request: httpx.Request) -> httpx.Response:
+            self.requests.append(request)
+            return httpx.Response(200, content=b"ok")
+
+        def close(self) -> None:
+            self.closes += 1
+
+    backend = Backend()
+    config = HttpConfig(
+        user_agent="Parallax contract test",
+        connect_timeout_seconds=1,
+        read_timeout_seconds=2,
+        write_timeout_seconds=3,
+        pool_timeout_seconds=4,
+        max_connections=3,
+        max_keepalive_connections=1,
+    )
+    source = make_source()
+    with patch("parallax.transport.httpx.Client", wraps=httpx.Client) as construct:
+        with HttpTransport(config, backend=backend) as transport:
+            transport.request(
+                RequestSpec("GET", source.endpoint.url), source, StreamState(source.id)
+            )
+        kwargs = construct.call_args.kwargs
+        assert kwargs["transport"] is backend
+        assert kwargs["follow_redirects"] is False
+        assert kwargs["limits"].max_connections == 3
+        assert kwargs["limits"].max_keepalive_connections == 1
+    assert backend.closes == 1
+    assert backend.requests[0].headers["user-agent"] == config.user_agent
+    assert backend.requests[0].extensions["timeout"] == {
+        "connect": 1,
+        "read": 2,
+        "write": 3,
+        "pool": 4,
+    }
+    with pytest.raises(RuntimeError, match="closed"):
+        transport.request(
+            RequestSpec("GET", source.endpoint.url), source, StreamState(source.id)
+        )

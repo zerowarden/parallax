@@ -5,8 +5,9 @@ from pathlib import Path
 import pytest
 
 from adapter_contract import assert_batch_contract
-from parallax.adapters import AdapterRegistry
 from parallax.adapters.execution import run_adapter_refresh
+from parallax.adapters.registry import AdapterRegistry
+from parallax.adapters.results import FullRefresh
 from parallax.config import load_catalog
 from parallax.domain import StreamState
 from parallax.transport import HttpTransport
@@ -105,18 +106,17 @@ def test_live_native_source_smoke(source_id: str, project_root: Path) -> None:
     """Fetch a configured native source directly from its publisher surface."""
     config = load_catalog(project_root / "config/config.toml")
     source = config.source(source_id)
-    adapter = AdapterRegistry().get(source.endpoint.adapter)
+    adapter = AdapterRegistry().resolve_source(source)
 
     with HttpTransport(config.http) as transport:
         refresh = run_adapter_refresh(
             adapter, source, transport, StreamState(source.id)
         )
 
-    batch = refresh.batch
-    assert batch is not None, (
+    assert isinstance(refresh, FullRefresh), (
         "An unconditional smoke fetch must return a representation"
     )
-    assert refresh.responses
+    batch = refresh.batch
     assert refresh.observed_at.tzinfo is not None
     assert_batch_contract(batch)
     validated = BatchValidator(config.validation).validate(

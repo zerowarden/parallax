@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from typing import TYPE_CHECKING
 
 from parallax.domain import ChangeEvent
-from parallax.storage import Storage
+
+if TYPE_CHECKING:
+    from parallax.storage import Storage
 
 
 class ChangeLogReader:

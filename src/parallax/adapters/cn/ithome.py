@@ -3,6 +3,7 @@ from __future__ import annotations
 from parallax.adapters.common.http import json_request
 from parallax.adapters.common.parsing import (
     decode_json_object,
+    extracted_batch,
     parse_china_timestamp,
     require_list,
     scalar_text,
@@ -39,12 +40,14 @@ class IthomeNewsAdapter:
         )
 
         max_items = source.max_items
+        excluded = 0
         candidates: list[HeadlineCandidate] = []
         for entry in entries:
             if not isinstance(entry, dict):
                 continue
             path = text(entry.get("url"))
             if AD_URL_MARKER in path:
+                excluded += 1
                 continue
             news_id = scalar_text(entry.get("newsid"))
             raw_published = text(entry.get("postdate"))
@@ -60,7 +63,9 @@ class IthomeNewsAdapter:
             )
             if len(candidates) >= max_items:
                 break
-        return ParsedBatch(candidates=tuple(candidates))
+        return extracted_batch(
+            candidates, entries=entries, label="ithome", excluded_count=excluded
+        )
 
 
 def _absolute_url(path: str) -> str:

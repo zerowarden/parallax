@@ -254,7 +254,7 @@ provider_name = "抖音"
 provider_kind = "platform"
 [sources.endpoint]
 adapter = "douyin_hot"
-url = "https://www.douyin.com/"
+url = "https://www.douyin.com/aweme/v1/web/hot/search/list/?device_platform=webapp&aid=6383&channel=channel_pc_web&detail_list=1"
 
 [[sources]]
 id = "hupu"
@@ -490,7 +490,7 @@ provider_kind = "platform"
 allowed_hosts = ["www.xueqiu.com"]
 [sources.endpoint]
 adapter = "xueqiu_hotstock"
-url = "https://xueqiu.com/"
+url = "https://stock.xueqiu.com/v5/stock/hot_stock/list.json"
 
 [[sources]]
 id = "gelonghui"

@@ -8,7 +8,6 @@ from pathlib import Path
 
 import pytest
 
-from parallax.adapters import AdapterRegistry
 from parallax.adapters.base import (
     Adapter,
     CompleteStep,
@@ -17,6 +16,7 @@ from parallax.adapters.base import (
 )
 from parallax.adapters.common.http import cookie_header
 from parallax.adapters.execution import MAX_ADAPTER_STEPS
+from parallax.adapters.registry import AdapterRegistry
 from parallax.config import IngestionConfig, Source, ValidationConfig
 from parallax.domain import (
     HeadlineCandidate,
@@ -156,12 +156,12 @@ def test_multi_request_fetch_combines_responses_without_network(
     assert state.etag is None
 
 
-class FixedAdapterLookup:
+class FixedAdapterResolver:
     def __init__(self, adapters: dict[str, Adapter]) -> None:
         self._adapters = adapters
 
-    def get(self, name: str) -> Adapter:
-        return self._adapters[name]
+    def resolve_source(self, source: Source) -> Adapter:
+        return self._adapters[source.endpoint.adapter]
 
 
 class BatchAdapter:
@@ -218,7 +218,7 @@ def _batch_service(
         IngestionService(
             storage,
             transport,
-            FixedAdapterLookup({"batch": BatchAdapter()}),
+            FixedAdapterResolver({"batch": BatchAdapter()}),
             BatchValidator(ValidationConfig()),
             IngestionConfig(max_concurrent_sources=2),
         ),
@@ -344,7 +344,7 @@ def test_fetch_source_finalizes_run_when_commit_fails(tmp_path: Path) -> None:
     service = IngestionService(
         storage=storage,
         transport=MappingTransport({source.endpoint.url: b"{}"}),
-        adapters=FixedAdapterLookup({"batch": BatchAdapter()}),
+        adapters=FixedAdapterResolver({"batch": BatchAdapter()}),
         validator=BatchValidator(ValidationConfig()),
         ingestion_config=IngestionConfig(),
     )
@@ -377,7 +377,7 @@ def test_fetch_source_keeps_original_error_when_recording_fails(
     service = IngestionService(
         storage=storage,
         transport=MappingTransport({source.endpoint.url: b"{}"}),
-        adapters=FixedAdapterLookup({"failing": FailingAdapter()}),
+        adapters=FixedAdapterResolver({"failing": FailingAdapter()}),
         validator=BatchValidator(ValidationConfig()),
         ingestion_config=IngestionConfig(),
     )
@@ -529,7 +529,7 @@ def test_parse_failure_creates_no_snapshot_or_success(tmp_path: Path) -> None:
     service = IngestionService(
         storage=storage,
         transport=MappingTransport({source.endpoint.url: b"{}"}),
-        adapters=FixedAdapterLookup({"failing": FailingAdapter()}),
+        adapters=FixedAdapterResolver({"failing": FailingAdapter()}),
         validator=BatchValidator(ValidationConfig()),
         ingestion_config=IngestionConfig(),
     )
@@ -629,7 +629,7 @@ def _stepped_service(
     service = IngestionService(
         storage=storage,
         transport=transport,
-        adapters=FixedAdapterLookup({source.endpoint.adapter: adapter}),
+        adapters=FixedAdapterResolver({source.endpoint.adapter: adapter}),
         validator=BatchValidator(ValidationConfig()),
         ingestion_config=IngestionConfig(),
     )
@@ -774,7 +774,9 @@ def test_history_fetch_records_without_snapshot(tmp_path: Path):
     service = IngestionService(
         storage=storage,
         transport=transport,
-        adapters=FixedAdapterLookup({source.endpoint.adapter: HistoryFixtureAdapter()}),
+        adapters=FixedAdapterResolver(
+            {source.endpoint.adapter: HistoryFixtureAdapter()}
+        ),
         validator=BatchValidator(ValidationConfig()),
         ingestion_config=IngestionConfig(),
     )
@@ -1003,13 +1005,11 @@ def test_effective_request_identity_is_persisted_across_catalog_changes(
     storage = Storage(tmp_path / "archive.db")
     storage.initialize()
     storage.sync_sources([source])
-    with HttpTransport(HttpConfig()) as transport:
-        transport._client.close()
-        transport._client = httpx.Client(transport=httpx.MockTransport(respond))
+    with HttpTransport(HttpConfig(), backend=httpx.MockTransport(respond)) as transport:
         service = IngestionService(
             storage,
             transport,
-            FixedAdapterLookup({"batch": BatchAdapter()}),
+            FixedAdapterResolver({"batch": BatchAdapter()}),
             BatchValidator(ValidationConfig()),
             IngestionConfig(),
         )

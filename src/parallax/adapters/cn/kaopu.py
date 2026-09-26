@@ -10,6 +10,7 @@ from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
+    JsonValue,
     ParsedBatch,
     RequestSpec,
 )
@@ -53,7 +54,7 @@ class KaopuNewsAdapter:
                 continue
             seen.add(href)
 
-            metrics: dict[str, object] = {}
+            metrics: dict[str, JsonValue] = {}
             meta = article.css_first(".story-meta span")
             recency = meta.text(strip=True) if meta is not None else ""
             if recency:

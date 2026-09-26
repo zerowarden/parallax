@@ -5,6 +5,7 @@ from typing import Any
 from parallax.adapters.common.http import json_request
 from parallax.adapters.common.parsing import (
     decode_json_object,
+    extracted_batch,
     require_list,
     scalar_text,
     text,
@@ -13,6 +14,7 @@ from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
+    JsonValue,
     ParsedBatch,
     RequestSpec,
 )
@@ -44,7 +46,7 @@ class ZhihuHotAdapter:
             target = entry.get("target")
             if not isinstance(target, dict):
                 continue
-            metrics: dict[str, Any] = {}
+            metrics: dict[str, JsonValue] = {}
             heat = _area_text(target, "metrics_area", "text")
             if heat:
                 metrics["heat"] = heat
@@ -58,7 +60,7 @@ class ZhihuHotAdapter:
                     metrics=metrics,
                 )
             )
-        return ParsedBatch(candidates=tuple(candidates))
+        return extracted_batch(candidates, entries=entries, label="zhihu")
 
 
 def _area_text(target: dict[str, Any], area: str, key: str) -> str:

@@ -6,6 +6,7 @@ from typing import Any
 from parallax.adapters.common.http import JSON_ACCEPT
 from parallax.adapters.common.parsing import (
     decode_json_object,
+    extracted_batch,
     parse_china_timestamp,
     require_list,
     scalar_text,
@@ -47,6 +48,7 @@ class CankaoxiaoxiNewsAdapter:
         source: Source,
         responses: tuple[HttpResponse, ...],
     ) -> ParsedBatch:
+        raw_entries: list[object] = []
         entries: list[dict[str, Any]] = []
         for response in responses:
             payload = decode_json_object(response.content, label="Cankaoxiaoxi")
@@ -54,6 +56,7 @@ class CankaoxiaoxiNewsAdapter:
                 payload.get("list"),
                 "Cankaoxiaoxi response does not contain a list",
             )
+            raw_entries.extend(items)
             entries.extend(item for item in items if isinstance(item, dict))
         entries.sort(key=_sort_key, reverse=True)
 
@@ -80,7 +83,7 @@ class CankaoxiaoxiNewsAdapter:
             )
             if len(candidates) >= max_items:
                 break
-        return ParsedBatch(candidates=tuple(candidates))
+        return extracted_batch(candidates, entries=raw_entries, label="cankaoxiaoxi")
 
 
 def _sort_key(entry: dict[str, Any]) -> datetime:

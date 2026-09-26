@@ -3,11 +3,11 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Literal, Protocol
+from typing import Literal
 
+from parallax.archive import BrowseHeadlineReader, HeadlineRow
 from parallax.domain import BrowseView
 from parallax.normalization import normalize_title_for_version
-from parallax.storage import HeadlineRow
 
 FeedOrder = Literal["observed", "published"]
 PAGE_SIZE = 100
@@ -39,30 +39,6 @@ class BrowsePage:
     items: tuple[HeadlineFeedRow, ...]
     page: int
     total_pages: int
-
-
-class BrowseHeadlineReader(Protocol):
-    def count_browse_headlines(
-        self,
-        *,
-        view: BrowseView,
-        since: datetime,
-        until: datetime,
-        query: str | None = None,
-        source_id: str | None = None,
-    ) -> int: ...
-
-    def browse_headlines(
-        self,
-        *,
-        view: BrowseView,
-        since: datetime,
-        until: datetime,
-        query: str | None = None,
-        source_id: str | None = None,
-        limit: int,
-        offset: int,
-    ) -> list[HeadlineRow]: ...
 
 
 def browse_items(

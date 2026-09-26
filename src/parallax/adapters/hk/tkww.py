@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-from typing import Any
 from urllib.parse import urljoin
 
 from selectolax.parser import HTMLParser
@@ -16,6 +15,7 @@ from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
+    JsonValue,
     ParsedBatch,
     RequestSpec,
 )
@@ -59,7 +59,7 @@ class TkwwNewsAdapter:
             external_id = text(story.attributes.get("data-storyid")) if story else ""
             age = AGE_LABEL.search(card.text(separator=" ", strip=True))
             raw_published = age.group(0) if age is not None else ""
-            metrics: dict[str, Any] = {}
+            metrics: dict[str, JsonValue] = {}
             candidates.append(
                 HeadlineCandidate(
                     title=title,

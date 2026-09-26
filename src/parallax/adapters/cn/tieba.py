@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import html
-from typing import Any
 
 from parallax.adapters.common.http import json_request
 from parallax.adapters.common.parsing import (
     decode_json_object,
+    extracted_batch,
     require_list,
     require_mapping,
     scalar_text,
@@ -15,9 +15,11 @@ from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
+    JsonValue,
     ParsedBatch,
     RequestSpec,
 )
+from parallax.numbers import optional_integer
 from parallax.parsing import parse_timestamp
 
 
@@ -58,9 +60,9 @@ class TiebaHotAdapter:
             url = html.unescape(text(entry.get("topic_url")))
             if not external_id or not title or not url:
                 continue
-            metrics: dict[str, Any] = {}
-            discuss_count = entry.get("discuss_num")
-            if isinstance(discuss_count, int):
+            metrics: dict[str, JsonValue] = {}
+            discuss_count = optional_integer(entry.get("discuss_num"))
+            if discuss_count is not None:
                 metrics["discuss_count"] = discuss_count
             raw_published = scalar_text(entry.get("create_time"))
             candidates.append(
@@ -76,4 +78,4 @@ class TiebaHotAdapter:
             )
             if len(candidates) >= max_items:
                 break
-        return ParsedBatch(candidates=tuple(candidates))
+        return extracted_batch(candidates, entries=entries, label="tieba")

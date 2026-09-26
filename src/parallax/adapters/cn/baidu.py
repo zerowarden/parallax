@@ -6,6 +6,7 @@ import re
 from parallax.adapters.common.http import html_request
 from parallax.adapters.common.parsing import (
     decode_html,
+    extracted_batch,
     require_list,
     require_mapping,
     text,
@@ -59,9 +60,13 @@ class BaiduHotSearchAdapter:
         )
 
         max_items = source.max_items
+        excluded = 0
         candidates: list[HeadlineCandidate] = []
         for entry in entries:
-            if not isinstance(entry, dict) or entry.get("isTop"):
+            if not isinstance(entry, dict):
+                continue
+            if entry.get("isTop"):
+                excluded += 1
                 continue
             url = text(entry.get("rawUrl"))
             candidates.append(
@@ -74,4 +79,6 @@ class BaiduHotSearchAdapter:
             )
             if len(candidates) >= max_items:
                 break
-        return ParsedBatch(candidates=tuple(candidates))
+        return extracted_batch(
+            candidates, entries=entries, label="baidu", excluded_count=excluded
+        )

@@ -14,6 +14,7 @@ from parallax.adapters.common.options import (
 from parallax.adapters.common.parsing import (
     decode_html,
     decode_json_object,
+    extracted_batch,
     require_list,
     scalar_text,
     text,
@@ -23,9 +24,11 @@ from parallax.domain import (
     HeadlineCandidate,
     HistoryPage,
     HttpResponse,
+    JsonValue,
     ParsedBatch,
     RequestSpec,
 )
+from parallax.numbers import optional_integer
 from parallax.parsing import parse_timestamp
 
 ITEM_URL_TEMPLATE = "https://news.ycombinator.com/item?id={item_id}"
@@ -92,6 +95,7 @@ class HackerNewsHotAdapter:
             payload.get("hits"),
             "Hacker News search response does not contain hits",
         )
+        excluded = 0
         candidates: list[HeadlineCandidate] = []
         for hit in hits:
             if not isinstance(hit, dict):
@@ -100,13 +104,14 @@ class HackerNewsHotAdapter:
             title = text(hit.get("title"))
             if not item_id or not title:
                 continue
-            metrics: dict[str, object] = {}
-            points = hit.get("points")
-            if isinstance(points, int):
+            metrics: dict[str, JsonValue] = {}
+            points = optional_integer(hit.get("points"))
+            if points is not None:
                 metrics["points"] = points
             raw_published = scalar_text(hit.get("created_at_i"))
             published = _parse_hn_timestamp(raw_published)
             if published is None or published < since:
+                excluded += 1
                 continue
             candidates.append(
                 HeadlineCandidate(
@@ -122,7 +127,12 @@ class HackerNewsHotAdapter:
                 )
             )
         return HistoryPage(
-            ParsedBatch(candidates=tuple(candidates)),
+            extracted_batch(
+                candidates,
+                entries=hits,
+                label="Hacker News history",
+                excluded_count=excluded,
+            ),
             exhausted=not hits or payload.get("nbPages") == 1,
         )
 
@@ -140,7 +150,7 @@ class HackerNewsHotAdapter:
             if not title:
                 continue
 
-            metrics: dict[str, object] = {}
+            metrics: dict[str, JsonValue] = {}
             raw_published = ""
             subtext = _subtext_row(row)
             if subtext is not None:

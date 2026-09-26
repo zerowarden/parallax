@@ -7,6 +7,7 @@ from urllib.parse import urlsplit
 from parallax.adapters.common.http import html_request
 from parallax.adapters.common.parsing import (
     decode_html,
+    extracted_batch,
     parse_china_timestamp,
     require_list,
     text,
@@ -68,4 +69,4 @@ class IfengHotAdapter:
             )
             if len(candidates) >= max_items:
                 break
-        return ParsedBatch(candidates=tuple(candidates))
+        return extracted_batch(candidates, entries=entries, label="ifeng")

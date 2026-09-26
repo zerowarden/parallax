@@ -7,7 +7,6 @@ from typing import Annotated
 
 import typer
 
-from parallax.adapters import AdapterRegistry
 from parallax.config import CatalogError, ResolvedConfig, load_catalog
 from parallax.feed import FeedOrder, build_headline_feed, build_headline_groups
 from parallax.parsing import parse_since
@@ -299,12 +298,14 @@ def config_lint(
     config: CONFIG_OPTION = Path("config/config.toml"),
 ) -> None:
     """Validate the entire catalog, including adapter references and options."""
+    from parallax.adapters.registry import AdapterRegistry
+
     resolved = _load_catalog_or_exit(config)
     registry = AdapterRegistry()
     problems: list[str] = []
     for source in resolved.sources:
         try:
-            registry.validate_source(source)
+            registry.resolve_source(source)
         except (KeyError, ValueError) as exc:
             problems.append(f"{source.id}: {exc}")
     if problems:

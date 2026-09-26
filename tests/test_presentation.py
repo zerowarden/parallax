@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from rich.console import Console
 
+from parallax.archive import HeadlineRow
 from parallax.domain import IngestionFailure, IngestionSummary
 from parallax.feed import HeadlineFeedRow
 from parallax.presentation import Presenter
-from parallax.storage import HeadlineRow
 
 
 def test_headline_content_is_rendered_as_literal_text() -> None:

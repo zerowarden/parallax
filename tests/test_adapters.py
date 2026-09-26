@@ -13,7 +13,6 @@ from adapter_contract import (
     assert_parse_rejects,
     response_for,
 )
-from parallax.adapters import AdapterRegistry
 from parallax.adapters.base import CompleteStep, ContinueStep, SourceAdapter
 from parallax.adapters.cn.baidu import BaiduHotSearchAdapter
 from parallax.adapters.cn.bilibili import (
@@ -32,6 +31,7 @@ from parallax.adapters.cn.cls import (
 from parallax.adapters.cn.coolapk import CoolapkHotAdapter, app_token
 from parallax.adapters.cn.dongqiudi import DongqiudiNewsAdapter
 from parallax.adapters.cn.douban import DoubanHotMoviesAdapter
+from parallax.adapters.cn.douyin import HOT_URL as DOUYIN_HOT_URL
 from parallax.adapters.cn.douyin import DouyinHotAdapter
 from parallax.adapters.cn.fastbull import FastbullExpressAdapter, FastbullNewsAdapter
 from parallax.adapters.cn.gelonghui import GelonghuiNewsAdapter
@@ -63,6 +63,7 @@ from parallax.adapters.cn.wallstreetcn import (
     WallstreetcnQuickAdapter,
 )
 from parallax.adapters.cn.weibo import WeiboHotAdapter
+from parallax.adapters.cn.xueqiu import HOT_URL as XUEQIU_HOT_URL
 from parallax.adapters.cn.xueqiu import XueqiuHotstockAdapter
 from parallax.adapters.cn.zaobao import ZaobaoRealtimeAdapter
 from parallax.adapters.cn.zhihu import ZhihuHotAdapter
@@ -78,6 +79,7 @@ from parallax.adapters.hk.oncc import OnccNewsAdapter
 from parallax.adapters.hk.thestandard import TheStandardNewsAdapter
 from parallax.adapters.hk.tkww import TkwwNewsAdapter
 from parallax.adapters.hk.wenweipo import WenweipoNewsAdapter
+from parallax.adapters.registry import AdapterRegistry
 from parallax.config import Source, ValidationConfig
 from parallax.validation import BatchValidator
 from source_factory import make_source
@@ -1982,7 +1984,7 @@ def test_coolapk_adapter_rejects_missing_data_list():
 
 
 def test_douyin_adapter_steps_through_cookie_bootstrap(fixtures_dir: Path):
-    source = _source("douyin_hot", "https://www.douyin.com/")
+    source = _source("douyin_hot", DOUYIN_HOT_URL)
     payload = (fixtures_dir / "douyin" / "hot.json").read_bytes()
     adapter = DouyinHotAdapter()
 
@@ -2020,7 +2022,7 @@ def test_douyin_adapter_steps_through_cookie_bootstrap(fixtures_dir: Path):
 
 
 def test_douyin_adapter_rejects_missing_word_list():
-    source = _source("douyin_hot", "https://www.douyin.com/")
+    source = _source("douyin_hot", DOUYIN_HOT_URL)
 
     with pytest.raises(ValueError, match="word_list"):
         DouyinHotAdapter().next_step(
@@ -2031,7 +2033,7 @@ def test_douyin_adapter_rejects_missing_word_list():
 
 
 def test_xueqiu_adapter_steps_through_cookie_bootstrap(fixtures_dir: Path):
-    source = _source("xueqiu_hotstock", "https://xueqiu.com/")
+    source = _source("xueqiu_hotstock", XUEQIU_HOT_URL)
     payload = (fixtures_dir / "xueqiu" / "hot.json").read_bytes()
     adapter = XueqiuHotstockAdapter()
 
@@ -2063,7 +2065,7 @@ def test_xueqiu_adapter_steps_through_cookie_bootstrap(fixtures_dir: Path):
 
 
 def test_xueqiu_adapter_skips_ad_entries():
-    source = _source("xueqiu_hotstock", "https://xueqiu.com/")
+    source = _source("xueqiu_hotstock", XUEQIU_HOT_URL)
     payload = json.dumps(
         {
             "data": {
@@ -3419,7 +3421,7 @@ def test_history_options_are_validated_during_catalog_lint(
 ) -> None:
     source = make_source(adapter="now_news", options={key: value})
     with pytest.raises(ValueError, match=key):
-        AdapterRegistry().validate_source(source)
+        AdapterRegistry().resolve_source(source)
     with pytest.raises(ValueError, match=key):
         NowNewsAdapter().build_history_plan(source, OBSERVED_AT)
 
@@ -3432,7 +3434,7 @@ def test_history_plan_uses_the_validated_item_budget(
     adapter: NowNewsAdapter | HackerNewsHotAdapter, adapter_name: str
 ) -> None:
     source = make_source(adapter=adapter_name, options={"history_max_items": 7})
-    AdapterRegistry().validate_source(source)
+    AdapterRegistry().resolve_source(source)
     assert adapter.build_history_plan(source, OBSERVED_AT).max_items == 7
 
 

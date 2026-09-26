@@ -5,7 +5,6 @@ import json
 import logging
 import threading
 import time
-from collections.abc import Mapping
 from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -17,6 +16,7 @@ import httpx
 
 from parallax.config import AuthConfig, HttpConfig, Source
 from parallax.domain import HttpResponse, RequestSpec, StreamState
+from parallax.http_headers import compose_headers
 
 LOGGER = logging.getLogger(__name__)
 MAX_REDIRECTS = 20
@@ -45,6 +45,7 @@ class Transport(Protocol):
 @dataclass(slots=True)
 class HttpTransport(AbstractContextManager["HttpTransport"]):
     config: HttpConfig
+    backend: httpx.BaseTransport | None = field(default=None, repr=False, kw_only=True)
     _client: httpx.Client = field(init=False, repr=False)
     _host_semaphores: dict[str, threading.Semaphore] = field(
         init=False,
@@ -69,6 +70,7 @@ class HttpTransport(AbstractContextManager["HttpTransport"]):
             max_keepalive_connections=self.config.max_keepalive_connections,
         )
         self._client = httpx.Client(
+            transport=self.backend,
             timeout=timeout,
             limits=limits,
             follow_redirects=False,
@@ -82,8 +84,7 @@ class HttpTransport(AbstractContextManager["HttpTransport"]):
         state: StreamState,
     ) -> HttpResponse:
         """Perform the configured request under shared HTTP policy."""
-        headers = dict(spec.headers)
-        headers.update(source.headers)
+        headers = compose_headers(spec.headers, source.headers)
         params = dict(spec.params)
         self._apply_auth(headers, params, source.auth)
 
@@ -104,7 +105,7 @@ class HttpTransport(AbstractContextManager["HttpTransport"]):
             headers=headers,
             content=spec.content,
         )
-        declared_cookie = _declared_cookie(headers)
+        declared_cookie = headers.get("cookie", "")
         redirect_count = 0
         attempt = 0
         while True:
@@ -114,10 +115,7 @@ class HttpTransport(AbstractContextManager["HttpTransport"]):
             request.read()
             request_identity = _request_identity(request, source)
             if state.request_identity == request_identity:
-                conditional: dict[str, str] = {}
-                self._apply_conditional_headers(conditional, state)
-                for name, value in conditional.items():
-                    request.headers.setdefault(name, value)
+                self._apply_conditional_headers(request.headers, state)
             try:
                 response, host_semaphore = self._send_once(request)
             except _TRANSIENT_ERRORS as exc:
@@ -291,7 +289,7 @@ class HttpTransport(AbstractContextManager["HttpTransport"]):
 
     @staticmethod
     def _apply_conditional_headers(
-        headers: dict[str, str],
+        headers: httpx.Headers,
         state: StreamState,
     ) -> None:
         if state.etag:
@@ -301,7 +299,7 @@ class HttpTransport(AbstractContextManager["HttpTransport"]):
 
     @staticmethod
     def _apply_auth(
-        headers: dict[str, str],
+        headers: httpx.Headers,
         params: dict[str, str],
         auth: AuthConfig,
     ) -> None:
@@ -368,15 +366,6 @@ def _effective_port(url: httpx.URL) -> int | None:
     if url.port is not None:
         return url.port
     return {"http": 80, "https": 443}.get(url.scheme)
-
-
-def _declared_cookie(headers: Mapping[str, str]) -> str:
-    """Return the cookie declared by the adapter or source, if any."""
-    declared = ""
-    for name, value in headers.items():
-        if name.lower() == "cookie":
-            declared = value
-    return declared
 
 
 def _apply_cookie_policy(request: httpx.Request, declared_cookie: str) -> None:

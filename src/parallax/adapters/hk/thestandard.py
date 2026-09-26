@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-from typing import Any
 from urllib.parse import urljoin
 
 from selectolax.parser import HTMLParser
@@ -12,6 +11,7 @@ from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
+    JsonValue,
     ParsedBatch,
     RequestSpec,
 )
@@ -53,7 +53,7 @@ class TheStandardNewsAdapter:
                 continue
             seen.add(href)
 
-            metrics: dict[str, Any] = {}
+            metrics: dict[str, JsonValue] = {}
             age_node = card.css_first(".list-item__date-time")
             age = age_node.text(strip=True) if age_node is not None else ""
             if age:

@@ -130,7 +130,5 @@ def test_validator_rejects_urls_with_illegal_characters(url: str):
         )
     )
 
-    result = validator.validate("fixture", batch, provider_id="fixture")
-
-    assert result.candidates == ()
-    assert result.rejected_count == 1
+    with pytest.raises(BatchValidationError, match="no valid headline items"):
+        validator.validate("fixture", batch, provider_id="fixture")

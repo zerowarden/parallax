@@ -5,6 +5,7 @@ from collections.abc import Mapping
 
 from parallax.config import Source
 from parallax.domain import RequestSpec
+from parallax.http_headers import compose_headers
 
 JSON_ACCEPT = "application/json, text/plain;q=0.9, */*;q=0.1"
 HTML_ACCEPT = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
@@ -35,11 +36,10 @@ def json_post(
     return RequestSpec(
         method="POST",
         url=source.endpoint.url,
-        headers={
-            "Accept": JSON_ACCEPT,
-            "Content-Type": "application/json",
-            **(headers or {}),
-        },
+        headers=compose_headers(
+            {"Accept": JSON_ACCEPT, "Content-Type": "application/json"},
+            headers or {},
+        ),
         content=json.dumps(body, ensure_ascii=False).encode("utf-8"),
     )
 
@@ -63,6 +63,6 @@ def _request(
     return RequestSpec(
         method="GET",
         url=source.endpoint.url,
-        headers={"Accept": accept, **(headers or {})},
+        headers=compose_headers({"Accept": accept}, headers or {}),
         params=dict(params or {}),
     )

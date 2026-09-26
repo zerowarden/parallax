@@ -10,6 +10,7 @@ from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
+    JsonValue,
     ParsedBatch,
     RequestSpec,
 )
@@ -47,7 +48,7 @@ def parse_feed_batch(
     parse-and-cap pipeline. Multi-feed adapters that merge several surfaces
     keep their own combination logic.
     """
-    candidates = parse_feed_candidates(content, source, label=label)
+    candidates = parse_feed_candidates(content, label=label)
     if transform is not None:
         candidates = [transform(candidate) for candidate in candidates]
     max_items = source.max_items
@@ -56,7 +57,6 @@ def parse_feed_batch(
 
 def parse_feed_candidates(
     content: bytes,
-    source: Source,
     *,
     label: str = "XML feed",
 ) -> list[HeadlineCandidate]:
@@ -75,15 +75,14 @@ def parse_feed_candidates(
 
     root_name = _local_name(root.tag)
     if root_name == "rss":
-        return _parse_rss2(root, source)
+        return _parse_rss2(root)
     if root_name == "feed":
-        return _parse_atom(root, source)
+        return _parse_atom(root)
     raise ValueError(f"Unsupported feed root element: {root_name}")
 
 
 def _parse_rss2(
     root: ElementTree.Element,
-    source: Source,
 ) -> list[HeadlineCandidate]:
     channel = _first_child(root, "channel")
     if channel is None:
@@ -112,7 +111,6 @@ def _parse_rss2(
 
 def _parse_atom(
     root: ElementTree.Element,
-    source: Source,
 ) -> list[HeadlineCandidate]:
     results: list[HeadlineCandidate] = []
     for position, entry in enumerate(_children(root, "entry"), start=1):
@@ -122,7 +120,7 @@ def _parse_atom(
         raw_updated = _child_text(entry, "updated")
         published = parse_timestamp(raw_published)
         link = _atom_link(entry)
-        metrics: dict[str, object] = {}
+        metrics: dict[str, JsonValue] = {}
         if raw_updated:
             metrics["updated_at"] = raw_updated
 

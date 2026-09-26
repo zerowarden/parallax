@@ -5,7 +5,6 @@ import hashlib
 import random
 import string
 import time
-from typing import Any
 
 from selectolax.parser import HTMLParser
 
@@ -20,6 +19,7 @@ from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
+    JsonValue,
     ParsedBatch,
     RequestSpec,
 )
@@ -95,7 +95,7 @@ class CoolapkHotAdapter:
             )
             if not title:
                 continue
-            metrics: dict[str, Any] = {}
+            metrics: dict[str, JsonValue] = {}
             target_row = entry.get("targetRow")
             if isinstance(target_row, dict):
                 heat = text(target_row.get("subTitle"))

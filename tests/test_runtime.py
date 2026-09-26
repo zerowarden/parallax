@@ -103,8 +103,8 @@ def test_transport_startup_failure_closes_storage_and_releases_ownership(
         raise RuntimeError("transport startup failure")
 
     with monkeypatch.context() as patch:
-        patch.setattr("parallax.runtime.Storage", TrackedStorage)
-        patch.setattr("parallax.runtime.HttpTransport", fail_transport)
+        patch.setattr("parallax.storage.Storage", TrackedStorage)
+        patch.setattr("parallax.transport.HttpTransport", fail_transport)
         with pytest.raises(RuntimeError, match="transport startup failure"):
             runtime_type.build(config)
     assert len(opened) == 1

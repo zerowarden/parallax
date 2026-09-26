@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any
 from urllib.parse import urljoin
 
 from selectolax.parser import HTMLParser
@@ -16,6 +15,7 @@ from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
+    JsonValue,
     ParsedBatch,
     RequestSpec,
 )
@@ -51,7 +51,7 @@ class OnccNewsAdapter:
             seen.add(href)
 
             raw_published = text(card.attributes.get("pubdate"))
-            metrics: dict[str, Any] = {}
+            metrics: dict[str, JsonValue] = {}
             district = text(card.attributes.get("district"))
             if district:
                 metrics["district"] = district

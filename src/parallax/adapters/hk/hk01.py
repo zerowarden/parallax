@@ -1,13 +1,17 @@
 from __future__ import annotations
 
-from typing import Any
-
 from parallax.adapters.common.http import json_request
-from parallax.adapters.common.parsing import decode_json_object, scalar_text, text
+from parallax.adapters.common.parsing import (
+    decode_json_object,
+    extracted_batch,
+    scalar_text,
+    text,
+)
 from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
+    JsonValue,
     ParsedBatch,
     RequestSpec,
 )
@@ -28,9 +32,13 @@ class Hk01LatestAdapter:
             raise ValueError("HK01 response does not contain an items list")
 
         max_items = source.max_items
+        excluded = 0
         candidates: list[HeadlineCandidate] = []
         for item in items:
-            if not isinstance(item, dict) or item.get("type") == 2:
+            if not isinstance(item, dict):
+                continue
+            if item.get("type") == 2:
+                excluded += 1
                 continue
             data = item.get("data")
             if not isinstance(data, dict):
@@ -40,16 +48,16 @@ class Hk01LatestAdapter:
             raw_published = data.get("publishTime")
             tags = data.get("tags")
             authors = data.get("authors")
-            metrics: dict[str, Any] = {}
+            metrics: dict[str, JsonValue] = {}
             if isinstance(tags, list):
                 metrics["tags"] = [
-                    tag.get("tagName")
+                    text(tag.get("tagName"))
                     for tag in tags
                     if isinstance(tag, dict) and tag.get("tagName")
                 ]
             if isinstance(authors, list):
                 metrics["authors"] = [
-                    author.get("publishName")
+                    text(author.get("publishName"))
                     for author in authors
                     if isinstance(author, dict) and author.get("publishName")
                 ]
@@ -74,4 +82,6 @@ class Hk01LatestAdapter:
             if len(candidates) >= max_items:
                 break
 
-        return ParsedBatch(candidates=tuple(candidates))
+        return extracted_batch(
+            candidates, entries=items, label="hk01", excluded_count=excluded
+        )

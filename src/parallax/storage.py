@@ -11,6 +11,7 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from parallax.archive import FetchRunRow, HeadlineRow
 from parallax.config import Source
 from parallax.domain import (
     AnalysisItem,
@@ -21,6 +22,7 @@ from parallax.domain import (
     HistoryOutcome,
     IngestionSummary,
     ItemVariant,
+    ObservedBatch,
     StreamState,
     ValidatedBatch,
     is_browse_view,
@@ -61,40 +63,6 @@ _LATEST_ITEM_VERSION_JOIN_SQL = """
         LIMIT 1
     )
 """
-
-
-@dataclass(frozen=True, slots=True)
-class HeadlineRow:
-    source_id: str
-    source_name: str
-    item_id: int
-    stream_kind: str
-    item_kind: str
-    entity_kind: str | None
-    item_variant: str | None
-    position: int | None
-    title: str
-    url: str
-    canonical_url: str
-    published_at: str | None
-    first_seen_at: str
-
-
-@dataclass(frozen=True, slots=True)
-class FetchRunRow:
-    id: int
-    source_id: str
-    status: str
-    started_at: str
-    finished_at: str | None
-    item_count: int
-    new_item_count: int
-    new_version_count: int
-    rejected_count: int
-    http_status: int | None
-    error_type: str | None
-    error_message: str | None
-    history_json: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -542,8 +510,7 @@ class Storage:
 
             new_items, new_versions, resolved = self._store_candidates(
                 source,
-                batch,
-                seen_at=observed,
+                ObservedBatch.from_validated(batch, observed_at),
                 committed_at=now,
             )
             for observation in resolved:
@@ -627,7 +594,7 @@ class Storage:
         self,
         source: Source,
         fetch_run_id: int,
-        batch: ValidatedBatch,
+        batch: ObservedBatch,
         outcome: HistoryOutcome | None = None,
     ) -> IngestionSummary:
         """Store backfilled items without touching snapshots or scheduling.
@@ -648,7 +615,6 @@ class Storage:
             new_items, new_versions, resolved = self._store_candidates(
                 source,
                 batch,
-                seen_at=now,
                 committed_at=now,
             )
             self._connection.execute(
@@ -1181,9 +1147,8 @@ class Storage:
     def _store_candidates(
         self,
         source: Source,
-        batch: ValidatedBatch,
+        batch: ObservedBatch,
         *,
-        seen_at: str,
         committed_at: str,
     ) -> tuple[int, int, tuple[_ResolvedObservation, ...]]:
         """Persist one validated batch as unique resolved observations.
@@ -1198,7 +1163,9 @@ class Storage:
         new_items = 0
         new_versions = 0
         resolved: dict[int, _ResolvedObservation] = {}
-        for candidate in batch.candidates:
+        for observation in batch.observations:
+            candidate = observation.candidate
+            seen_at = _iso(observation.observed_at)
             item_id, item_is_new = self._resolve_item(source, candidate, seen_at)
             if item_id in resolved:
                 LOGGER.warning(

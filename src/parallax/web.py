@@ -6,15 +6,15 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
-from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 from flask import Flask, render_template, request, url_for
 
+from parallax.archive import BrowseHeadlineReader
 from parallax.config import Source
 from parallax.domain import BrowseView, is_browse_view
 from parallax.feed import browse_items
-from parallax.storage import Storage
+from parallax.urls import parse_http_url
 
 LOGGER = logging.getLogger(__name__)
 
@@ -58,7 +58,7 @@ def build_source_filter_options(
 
 
 def create_app(
-    storage: Storage,
+    storage: BrowseHeadlineReader,
     sources: Sequence[Source],
     *,
     now: Callable[[], datetime] | None = None,
@@ -163,11 +163,10 @@ def format_relative(value: str, now: datetime) -> str:
 def is_usable_external_url(value: str) -> bool:
     """Return whether a stored URL is safe to expose as a browser link."""
     try:
-        parsed = urlsplit(value.strip())
-        _ = parsed.port
+        parse_http_url(value)
     except ValueError:
         return False
-    return parsed.scheme in {"http", "https"} and parsed.hostname is not None
+    return True
 
 
 def _utc_now() -> datetime:

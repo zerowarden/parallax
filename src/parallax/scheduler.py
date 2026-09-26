@@ -3,10 +3,13 @@ from __future__ import annotations
 import logging
 import time
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from parallax.config import SchedulerConfig, SourceCatalog
 from parallax.ingest import IngestionService
-from parallax.storage import Storage
+
+if TYPE_CHECKING:
+    from parallax.storage import Storage
 
 LOGGER = logging.getLogger(__name__)
 

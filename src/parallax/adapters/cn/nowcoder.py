@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from typing import Any
-
 from parallax.adapters.common.http import json_request
 from parallax.adapters.common.parsing import (
     decode_json_object,
+    extracted_batch,
     require_list,
     scalar_text,
     text,
@@ -13,9 +12,11 @@ from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
+    JsonValue,
     ParsedBatch,
     RequestSpec,
 )
+from parallax.numbers import optional_finite_number
 
 FEED_DETAIL_TYPE = 74
 DISCUSS_TYPE = 0
@@ -47,11 +48,18 @@ class NowcoderHotAdapter:
         )
 
         max_items = source.max_items
+        excluded = 0
         candidates: list[HeadlineCandidate] = []
         for entry in entries:
             if not isinstance(entry, dict):
                 continue
             entry_type = entry.get("type")
+            if entry_type is not None and entry_type not in {
+                FEED_DETAIL_TYPE,
+                DISCUSS_TYPE,
+            }:
+                excluded += 1
+                continue
             entry_id = scalar_text(entry.get("id"))
             uuid = text(entry.get("uuid"))
             if entry_type == FEED_DETAIL_TYPE and uuid:
@@ -62,9 +70,9 @@ class NowcoderHotAdapter:
                 url = DISCUSS_URL_TEMPLATE.format(entry_id=entry_id)
             else:
                 continue
-            metrics: dict[str, Any] = {}
-            hot_value = entry.get("hotValueFromDolphin")
-            if isinstance(hot_value, (int, float)):
+            metrics: dict[str, JsonValue] = {}
+            hot_value = optional_finite_number(entry.get("hotValueFromDolphin"))
+            if hot_value is not None:
                 metrics["hot_value"] = hot_value
             candidates.append(
                 HeadlineCandidate(
@@ -77,4 +85,6 @@ class NowcoderHotAdapter:
             )
             if len(candidates) >= max_items:
                 break
-        return ParsedBatch(candidates=tuple(candidates))
+        return extracted_batch(
+            candidates, entries=entries, label="nowcoder", excluded_count=excluded
+        )

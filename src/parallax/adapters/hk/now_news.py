@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
 
 from parallax.adapters.base import HistoryPlan
 from parallax.adapters.common.http import json_request
@@ -9,12 +8,18 @@ from parallax.adapters.common.options import (
     DEFAULT_HISTORY_MAX_ITEMS,
     positive_integer_options,
 )
-from parallax.adapters.common.parsing import decode_json_list, scalar_text, text
+from parallax.adapters.common.parsing import (
+    decode_json_list,
+    extracted_batch,
+    scalar_text,
+    text,
+)
 from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HistoryPage,
     HttpResponse,
+    JsonValue,
     ParsedBatch,
     RequestSpec,
 )
@@ -94,23 +99,26 @@ def _parse_entries(
     since: datetime | None,
 ) -> ParsedBatch:
     max_items = source.max_items
+    excluded = 0
     candidates: list[HeadlineCandidate] = []
     seen: set[str] = set()
     for entry in entries:
         if not isinstance(entry, dict):
             continue
+        if text(entry.get("storyTitle")).startswith(AD_STORY_PREFIX):
+            excluded += 1
+            continue
         news_id = scalar_text(entry.get("newsId"))
         title = text(entry.get("title"))
         if not news_id or not title or news_id in seen:
             continue
-        if text(entry.get("storyTitle")).startswith(AD_STORY_PREFIX):
-            continue
         raw_published = scalar_text(entry.get("publishDate"))
         published = parse_timestamp(raw_published)
         if since is not None and (published is None or published < since):
+            excluded += 1
             continue
         seen.add(news_id)
-        metrics: dict[str, Any] = {}
+        metrics: dict[str, JsonValue] = {}
         publisher = text(entry.get("newsSource"))
         if publisher:
             metrics["source"] = publisher
@@ -129,5 +137,7 @@ def _parse_entries(
             )
         )
         if since is None and len(candidates) >= max_items:
-            return ParsedBatch(candidates=tuple(candidates))
-    return ParsedBatch(candidates=tuple(candidates))
+            break
+    return extracted_batch(
+        candidates, entries=entries, label="Now News", excluded_count=excluded
+    )

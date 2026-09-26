@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from typing import Any
-
 from parallax.adapters.common.http import json_request
 from parallax.adapters.common.parsing import (
     decode_json_object,
+    extracted_batch,
     require_list,
     scalar_text,
     text,
@@ -13,9 +12,11 @@ from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
+    JsonValue,
     ParsedBatch,
     RequestSpec,
 )
+from parallax.numbers import optional_integer
 from parallax.parsing import parse_timestamp
 
 TAG = "热门文章"
@@ -63,10 +64,10 @@ class SspaiHotAdapter:
             title = text(entry.get("title"))
             if not article_id or not title:
                 continue
-            metrics: dict[str, Any] = {}
+            metrics: dict[str, JsonValue] = {}
             for key in ("like_count", "comment_count"):
-                value = entry.get(key)
-                if isinstance(value, int):
+                value = optional_integer(entry.get(key))
+                if value is not None:
                     metrics[key] = value
             raw_published = scalar_text(entry.get("released_time"))
             candidates.append(
@@ -82,4 +83,4 @@ class SspaiHotAdapter:
             )
             if len(candidates) >= max_items:
                 break
-        return ParsedBatch(candidates=tuple(candidates))
+        return extracted_batch(candidates, entries=entries, label="sspai")

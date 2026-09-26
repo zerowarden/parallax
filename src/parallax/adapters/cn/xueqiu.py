@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any
 
 from parallax.adapters.base import AdapterStep, CompleteStep, ContinueStep
 from parallax.adapters.common.http import cookie_header
+from parallax.adapters.common.options import fixed_endpoint_options
 from parallax.adapters.common.parsing import (
     decode_json_object,
     require_list,
@@ -16,14 +16,20 @@ from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
+    JsonValue,
     ParsedBatch,
     RequestSpec,
 )
+from parallax.numbers import optional_finite_number
 
 BOOTSTRAP_URL = "https://xueqiu.com/hq"
 HOT_URL = "https://stock.xueqiu.com/v5/stock/hot_stock/list.json"
 HOT_PARAMS = {"_type": "10", "type": "10"}
 STOCK_URL_TEMPLATE = "https://xueqiu.com/s/{code}"
+
+
+def validate_config(source: Source) -> None:
+    fixed_endpoint_options(source, HOT_URL)
 
 
 class XueqiuHotstockAdapter:
@@ -49,7 +55,7 @@ class XueqiuHotstockAdapter:
             return ContinueStep(
                 request=RequestSpec(
                     method="GET",
-                    url=HOT_URL,
+                    url=source.endpoint.url,
                     params={**HOT_PARAMS, "size": str(size)},
                     headers={"Cookie": cookie_header(response.cookies)},
                 ),
@@ -78,9 +84,9 @@ def _parse_hot(source: Source, response: HttpResponse) -> ParsedBatch:
         title = text(entry.get("name"))
         if not code or not title:
             continue
-        metrics: dict[str, Any] = {}
-        percent = entry.get("percent")
-        if isinstance(percent, (int, float)) and not isinstance(percent, bool):
+        metrics: dict[str, JsonValue] = {}
+        percent = optional_finite_number(entry.get("percent"))
+        if percent is not None:
             metrics["percent"] = percent
         exchange = text(entry.get("exchange"))
         if exchange:

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-from typing import Any
 from urllib.parse import urljoin, urlsplit
 
 from selectolax.parser import HTMLParser
@@ -12,6 +11,7 @@ from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
+    JsonValue,
     ParsedBatch,
     RequestSpec,
 )
@@ -46,7 +46,7 @@ class SteamPlayersAdapter:
             if not href or not title:
                 continue
             players = text(players_node.text(strip=True)) if players_node else ""
-            metrics: dict[str, Any] = {}
+            metrics: dict[str, JsonValue] = {}
             if players:
                 metrics["current_players"] = players
             url = href if href.startswith("http") else urljoin(BASE_URL, href)

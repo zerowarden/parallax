@@ -6,6 +6,7 @@ from typing import Any
 
 from parallax.adapters.common.http import json_request
 from parallax.adapters.common.parsing import (
+    extracted_batch,
     parse_china_timestamp,
     require_list,
     scalar_text,
@@ -15,6 +16,7 @@ from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
+    JsonValue,
     ParsedBatch,
     RequestSpec,
 )
@@ -43,11 +45,13 @@ class Jin10FlashAdapter:
         entries = _decode_flash_array(response.content)
 
         max_items = source.max_items
+        excluded = 0
         candidates: list[HeadlineCandidate] = []
         for entry in entries:
             if not isinstance(entry, dict):
                 continue
             if AD_CHANNEL in (entry.get("channel") or []):
+                excluded += 1
                 continue
             data = entry.get("data")
             if not isinstance(data, dict):
@@ -62,7 +66,7 @@ class Jin10FlashAdapter:
             title = headline.group(1).strip() if headline else flash_text
             flash_id = scalar_text(entry.get("id"))
             raw_published = text(entry.get("time"))
-            metrics: dict[str, Any] = {}
+            metrics: dict[str, JsonValue] = {}
             if entry.get("important") == 1:
                 metrics["important"] = True
             candidates.append(
@@ -82,7 +86,9 @@ class Jin10FlashAdapter:
             )
             if len(candidates) >= max_items:
                 break
-        return ParsedBatch(candidates=tuple(candidates))
+        return extracted_batch(
+            candidates, entries=entries, label="jin10", excluded_count=excluded
+        )
 
 
 def _decode_flash_array(content: bytes) -> list[Any]:

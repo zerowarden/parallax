@@ -14,6 +14,7 @@ from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
+    JsonValue,
     ParsedBatch,
     RequestSpec,
 )
@@ -127,7 +128,7 @@ class QqvideoHotSearchAdapter:
             title = text(params.get("title"))
             if not title:
                 continue
-            metrics: dict[str, Any] = {}
+            metrics: dict[str, JsonValue] = {}
             subtitle = text(params.get("sub_title"))
             if subtitle:
                 metrics["subtitle"] = subtitle

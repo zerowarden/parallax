@@ -3,8 +3,20 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from parallax.config import Source
+from parallax.numbers import optional_integer
 
 DEFAULT_HISTORY_MAX_ITEMS = 1000
+
+
+def fixed_endpoint_options(source: Source, expected_url: str) -> None:
+    """Preflight a fixed protocol target instead of silently ignoring overrides."""
+    positive_integer_options(source, {})
+    if source.endpoint.url != expected_url:
+        raise ValueError(
+            f"Adapter {source.endpoint.adapter!r} requires "
+            f"endpoint.url={expected_url!r}; "
+            "endpoint overrides are unsupported"
+        )
 
 
 def positive_integer_options(
@@ -22,9 +34,9 @@ def positive_integer_options(
 
 def option_int(source: Source, key: str, default: int) -> int:
     """Read a positive integer source option, failing clearly when invalid."""
-    value = source.endpoint.options.get(key, default)
-    if isinstance(value, bool) or not isinstance(value, int):
+    value = optional_integer(source.endpoint.options.get(key, default))
+    if value is None:
         raise ValueError(f"source.endpoint.options.{key} must be an integer")
     if value < 1:
         raise ValueError(f"source.endpoint.options.{key} must be positive")
-    return int(value)
+    return value

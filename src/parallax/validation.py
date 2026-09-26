@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime, timedelta
-from urllib.parse import urlsplit
 
 from parallax.config import ValidationConfig
 from parallax.domain import (
@@ -11,20 +10,10 @@ from parallax.domain import (
     ValidatedBatch,
 )
 from parallax.identity import identity_keys
+from parallax.numbers import optional_integer
+from parallax.urls import parse_http_url
 
 LOGGER = logging.getLogger(__name__)
-
-_ILLEGAL_URL_CHARACTERS = frozenset(' "<>\\^`{|}')
-
-
-def _has_illegal_url_characters(url: str) -> bool:
-    return any(
-        character.isspace()
-        or character in _ILLEGAL_URL_CHARACTERS
-        or ord(character) < 0x20
-        or ord(character) == 0x7F
-        for character in url
-    )
 
 
 class BatchValidationError(RuntimeError):
@@ -88,7 +77,7 @@ class BatchValidator:
                 seen_url_fallbacks.add(url_key)
             accepted.append(candidate)
 
-        if not accepted and not self._config.allow_empty_batches:
+        if not accepted and (batch.candidates or not self._config.allow_empty_batches):
             raise BatchValidationError(
                 f"Source {source_id} produced no valid headline items"
             )
@@ -117,19 +106,15 @@ class BatchValidator:
         if len(title) > self._config.max_title_length:
             return "title_too_long"
 
-        if _has_illegal_url_characters(candidate.url):
-            return "invalid_url"
-
         try:
-            split = urlsplit(candidate.url.strip())
-            _ = split.port
+            parse_http_url(candidate.url)
         except ValueError:
             return "invalid_url"
-        if split.scheme not in {"http", "https"} or not split.hostname:
-            return "invalid_url"
 
-        if candidate.position is not None and candidate.position < 1:
-            return "invalid_position"
+        if candidate.position is not None:
+            position = optional_integer(candidate.position)
+            if position is None or position < 1:
+                return "invalid_position"
 
         if candidate.published_at is not None:
             published = candidate.published_at
