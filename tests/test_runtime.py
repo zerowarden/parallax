@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import sqlite3
+import subprocess
+import sys
 from pathlib import Path
+from select import select
 
 import pytest
 from typer.testing import CliRunner
@@ -122,3 +125,73 @@ def test_diagnostics_do_not_reconcile_or_recover_runs(tmp_path: Path) -> None:
     with ArchiveRuntime.build(config) as reader:
         assert reader.catalog.source("fixture").enabled
         assert reader.storage.recent_fetch_runs()[0].status == "running"
+
+
+@pytest.mark.parametrize(
+    "command", [["run", "--once"], ["fetch", "fixture"], ["fetch-all"]]
+)
+def test_collector_process_rejects_manual_and_scheduled_collection(
+    tmp_path: Path, command: list[str]
+) -> None:
+    config = _config(tmp_path)
+    _archive(tmp_path)
+    with Runtime.build(config) as owner:
+        run = owner.storage.start_fetch_run("fixture")
+        result = subprocess.run(
+            [sys.executable, "-m", "parallax", *command, "--config", str(config)],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+        assert result.returncode != 0
+        assert "Another collector" in result.stderr
+        assert "stop it before starting another collection command" in result.stderr
+        assert "Traceback" not in result.stderr
+        # A rejected collector must not recover the owner's active run.
+        with ArchiveRuntime.build(config) as reader:
+            assert reader.storage.recent_fetch_runs()[0].id == run
+            assert reader.storage.recent_fetch_runs()[0].status == "running"
+        result = subprocess.run(
+            [sys.executable, "-m", "parallax", "runs", "--config", str(config)],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+        assert result.returncode == 0, result.stderr
+
+
+def test_collector_process_crash_releases_ownership(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    _archive(tmp_path)
+    script = """
+import logging
+import sys
+from pathlib import Path
+from parallax.runtime import Runtime
+logging.disable(logging.CRITICAL)
+with Runtime.build(Path(sys.argv[1])) as runtime:
+    runtime.storage.start_fetch_run("fixture")
+    print("ready", flush=True)
+    sys.stdin.readline()
+"""
+    with subprocess.Popen(
+        [sys.executable, "-c", script, str(config)],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        text=True,
+    ) as process:
+        try:
+            assert process.stdout is not None
+            assert select([process.stdout], [], [], 15)[0], "collector did not start"
+            assert process.stdout.readline() == "ready\n"
+            with pytest.raises(RuntimeError, match="Another collector"):
+                Runtime.build(config)
+        finally:
+            process.kill()
+            process.communicate(timeout=15)
+    with Runtime.build(config) as successor:
+        recovered = successor.storage.recent_fetch_runs()[0]
+        assert recovered.status == "failed"
+        assert recovered.error_type == "AbandonedRun"

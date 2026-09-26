@@ -244,3 +244,75 @@ def test_analysis_input_fails_without_advancing_on_version_mismatch(
 
     assert storage.get_consumer_checkpoint(CONSUMER) == 0
     storage.close()
+
+
+@pytest.mark.parametrize(
+    "table,field,label",
+    [
+        ("sources", "stream_kind", "stream kind"),
+        ("items", "item_kind", "item kind"),
+        ("items", "entity_kind", "entity kind"),
+        ("items", "item_variant", "item variant"),
+    ],
+)
+@pytest.mark.parametrize("invalid_value", ["unknown", ""])
+def test_analysis_input_rejects_unknown_classification_without_advancing(
+    tmp_path: Path, table: str, field: str, label: str, invalid_value: str
+) -> None:
+    storage = Storage(tmp_path / "archive.db")
+    storage.initialize()
+    source = _source()
+    storage.sync_sources([source])
+    _record(storage, source, (_candidate("1", "Headline"),))
+    event = storage.changes_after(0)[0]
+    storage._connection.execute(f"UPDATE {table} SET {field} = ?", (invalid_value,))
+
+    try:
+        with pytest.raises(ValueError) as error:
+            list(AnalysisInputReader(storage, CONSUMER).pending())
+        assert str(error.value) == (
+            f"item {event.item_id} has unsupported {label} {invalid_value!r}"
+        )
+        assert storage.get_consumer_checkpoint(CONSUMER) == 0
+    finally:
+        storage.close()
+
+
+@pytest.mark.parametrize(
+    "item_kind,entity_kind,item_variant",
+    [
+        ("article", None, None),
+        ("article", None, "flash"),
+        ("post", None, None),
+        ("video", None, None),
+        ("entity", "game", None),
+        ("entity", "movie", None),
+        ("entity", "product", None),
+        ("entity", "repository", None),
+        ("entity", "topic", None),
+        ("entity", "security", None),
+    ],
+)
+def test_analysis_input_preserves_item_classification(
+    tmp_path: Path,
+    item_kind: ItemKind,
+    entity_kind: EntityKind | None,
+    item_variant: ItemVariant | None,
+) -> None:
+    storage = Storage(tmp_path / "archive.db")
+    storage.initialize()
+    source = _source(
+        item_kind=item_kind, entity_kind=entity_kind, item_variant=item_variant
+    )
+    storage.sync_sources([source])
+    _record(storage, source, (_candidate("1", "Headline"),))
+
+    try:
+        item = next(AnalysisInputReader(storage, CONSUMER).pending())
+        assert (item.item_kind, item.entity_kind, item.item_variant) == (
+            item_kind,
+            entity_kind,
+            item_variant,
+        )
+    finally:
+        storage.close()

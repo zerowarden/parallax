@@ -751,6 +751,99 @@ def test_transaction_rolls_back_when_interrupted(tmp_path: Path) -> None:
     storage.close()
 
 
+@pytest.mark.parametrize(
+    "operation,failure_table",
+    [("refresh", "fetch_runs"), ("refresh", "stream_state"), ("history", "fetch_runs")],
+)
+def test_late_ingestion_failure_rolls_back_every_persisted_effect(
+    tmp_path: Path, operation: str, failure_table: str
+) -> None:
+    storage = Storage(tmp_path / "archive.db")
+    storage.initialize()
+    source = _source()
+    storage.sync_sources([source])
+    original = HeadlineCandidate(title="Original", url="https://example.com/1")
+    first_run = storage.start_fetch_run(source.id)
+    storage.record_success(
+        source,
+        first_run,
+        200,
+        ValidatedBatch((original,), 0),
+        "original-etag",
+        "original-modified",
+        OBSERVED_AT,
+        OBSERVED_AT,
+        "original-request",
+    )
+    run = storage.start_fetch_run(source.id)
+    # Fail after items, aliases, observations, versions, events and (for refresh)
+    # snapshot entries have been written. Even the run update must roll back.
+    failure_condition = (
+        f"NEW.id = {run} AND NEW.finished_at IS NOT NULL"
+        if failure_table == "fetch_runs"
+        else "NEW.request_identity = 'new-request'"
+    )
+    storage._connection.execute(f"""
+        CREATE TEMP TRIGGER reject_ingestion AFTER UPDATE ON {failure_table}
+        WHEN {failure_condition}
+        BEGIN SELECT RAISE(ABORT, 'injected late failure'); END
+        """)
+    tables = (
+        "items",
+        "item_url_identities",
+        "observations",
+        "item_versions",
+        "snapshots",
+        "snapshot_entries",
+        "change_log",
+        "fetch_runs",
+        "stream_state",
+    )
+    before = {
+        table: storage._connection.execute(
+            f"SELECT * FROM {table} ORDER BY rowid"
+        ).fetchall()
+        for table in tables
+    }
+    batch = ValidatedBatch(
+        (
+            HeadlineCandidate(
+                title="Revised", url=original.url, external_id="promoted-id"
+            ),
+            HeadlineCandidate(title="New", url="https://example.com/2"),
+        ),
+        0,
+    )
+    try:
+        with pytest.raises(sqlite3.IntegrityError, match="injected late failure"):
+            if operation == "refresh":
+                storage.record_success(
+                    source,
+                    run,
+                    200,
+                    batch,
+                    "new-etag",
+                    "new-modified",
+                    OBSERVED_AT + timedelta(hours=1),
+                    OBSERVED_AT,
+                    "new-request",
+                )
+            else:
+                storage.record_history(
+                    source, run, ObservedBatch.from_validated(batch, OBSERVED_AT)
+                )
+        assert not storage._connection.in_transaction
+        for table in tables:
+            assert (
+                storage._connection.execute(
+                    f"SELECT * FROM {table} ORDER BY rowid"
+                ).fetchall()
+                == before[table]
+            ), table
+    finally:
+        storage.close()
+
+
 class _CommitFailingConnection:
     def __init__(self) -> None:
         self.in_transaction = False

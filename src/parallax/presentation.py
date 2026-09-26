@@ -9,7 +9,6 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
-from parallax.archive import FetchRunRow, HeadlineRow
 from parallax.config import Source
 from parallax.diagnostic_models import SourceDiagnostic
 from parallax.domain import (
@@ -18,6 +17,7 @@ from parallax.domain import (
     StreamState,
 )
 from parallax.feed import FeedOrder, HeadlineFeedRow
+from parallax.read_models import FetchRunRow, HeadlineRow
 
 FAILED_STATUS = "failed"
 FEED_TITLES = {

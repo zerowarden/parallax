@@ -153,13 +153,23 @@ preserve the old archive, configure a fresh database path, and run
 recovered. Equal observation timestamps break title ties by version ID and
 snapshot ties by snapshot ID.
 
-Collectors hold an exclusive POSIX lock beside the database for their lifetime.
+Exactly one collector process is supported per archive. `init`, `fetch`,
+`fetch-all`, and `run` hold an exclusive POSIX lock beside the resolved database
+path for their lifetime, before recovery, catalog reconciliation, due-state
+checks or HTTP dispatch. A competing command exits with an actionable
+`Another collector owns ...` error. The OS releases ownership on exit or crash;
+the lock file can remain and must not be removed while a collector is running.
+Within that process HTTP preparation is bounded and concurrent; commits remain
+serial on the owning thread. There are no per-source leases.
 After acquiring ownership, startup finalizes leftover `running` records as
 `AbandonedRun` and makes those sources due again. Source payload failures may be
 isolated after rollback; SQLite failures abort a batch with their original
 category. Failure recording is best effort if SQLite is unavailable. Readers
-neither take collector ownership nor recover runs. Direct storage callers must
-follow the same ownership policy before recovering abandoned work.
+neither take collector ownership nor recover runs. Independent processors can
+read committed changes and write their own checkpoints without acquiring the
+collector lock. Direct ingestion/storage callers must hold `collector_lock`
+around the entire collection workflow, including recovery and due-state reads;
+individual SQLite transactions alone do not enforce collector ownership.
 
 Conditional validators are bound to a hash of the effective request, including
 method, URL, parameters, headers/auth, body, and representation-selection
@@ -224,11 +234,32 @@ applicability. Full results require a parsed batch; not-modified results carry
 conditional metadata. Combined representations have no stream validators.
 History keeps its separate incremental paging and per-candidate observations.
 
-Archive projections and read capabilities live in `archive.py`; diagnostic
-values live in `diagnostic_models.py`. Feed logic and presentation depend on
-these contracts. Runtime builders import concrete collection services when
+Archive projections (`HeadlineRow`, `FetchRunRow`) live in `read_models.py`;
+`archive.py` retains the existing browse and health reader protocols and
+re-exports the rows for compatibility. Diagnostic values live in
+`diagnostic_models.py`. Feed logic and presentation depend on these contracts.
+Runtime builders import concrete collection services when
 constructing the requested capability, so catalog commands and archive readers
 do not construct a collector. The collector owns no diagnostic service.
+
+`Storage` remains the public façade over a single owned SQLite connection:
+
+- `storage.foundation` owns connections, schema compatibility, transactions and
+  collector locking; `storage.encoding` owns SQLite value conversions.
+- `storage.catalog` reconciles the persisted source catalog.
+- `storage.writer` owns atomic ingestion writes and calls `storage.identity`
+  for persistent identity resolution on that same connection.
+- `storage.queries` serves browse, snapshot and source-health reads through the
+  existing reader capabilities.
+- `storage.changes` reads and hydrates committed events and manages independent
+  consumer checkpoints.
+
+A refresh commits items, URL aliases, observations, title versions, snapshot
+entries, change events, fetch-run completion and successful stream state in one
+transaction. Identity helpers neither open connections nor commit. Historical
+writes keep their existing atomic transaction without advancing live snapshots
+or scheduling. Splitting modules does not introduce per-table repositories or
+change the schema.
 
 Tests can pass `backend=httpx.MockTransport(...)` to `HttpTransport`. Parallax
 still constructs and closes the HTTPX client with its configured policy; tests

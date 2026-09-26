@@ -13,6 +13,7 @@ import pytest
         ("parallax.adapters.base", []),
         ("parallax.adapters.results", []),
         ("parallax.archive", []),
+        ("parallax.read_models", []),
         ("parallax.diagnostic_models", []),
         ("parallax.feed", []),
         ("parallax.presentation", []),

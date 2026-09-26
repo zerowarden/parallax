@@ -50,7 +50,13 @@ ORDER_OPTION = Annotated[
 
 
 def _runtime(config: Path) -> Runtime:
-    return Runtime.build(config)
+    from parallax.storage import CollectorAlreadyRunningError
+
+    try:
+        return Runtime.build(config)
+    except CollectorAlreadyRunningError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
 
 
 def _archive(config: Path) -> ArchiveRuntime:

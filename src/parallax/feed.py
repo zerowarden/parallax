@@ -5,9 +5,10 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal
 
-from parallax.archive import BrowseHeadlineReader, HeadlineRow
+from parallax.archive import BrowseHeadlineReader
 from parallax.domain import BrowseView
 from parallax.normalization import normalize_title_for_version
+from parallax.read_models import HeadlineRow
 
 FeedOrder = Literal["observed", "published"]
 PAGE_SIZE = 100
