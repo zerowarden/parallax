@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Generator
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated
@@ -49,11 +51,19 @@ ORDER_OPTION = Annotated[
 ]
 
 
-def _runtime(config: Path) -> Runtime:
-    from parallax.storage import CollectorAlreadyRunningError
+@contextmanager
+def _runtime(config: Path) -> Generator[Runtime]:
+    from parallax.config.loader import load_archive_config
+    from parallax.logging_setup import configure_logging
+    from parallax.storage.locking import CollectorAlreadyRunningError
 
+    app_config = load_archive_config(config)
     try:
-        return Runtime.build(config)
+        with (
+            configure_logging(app_config.log_level, app_config.log_path),
+            Runtime.build(config) as runtime,
+        ):
+            yield runtime
     except CollectorAlreadyRunningError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
@@ -165,7 +175,10 @@ def run_scheduler(
             once,
         )
         if once:
-            runtime.scheduler.run_due_once()
+            result = runtime.scheduler.run_due_once()
+            Presenter().fetch_results(result.summaries, result.failures)
+            if result.failures:
+                raise typer.Exit(code=1)
             return
         try:
             runtime.scheduler.run_forever()

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from rich.console import Console
 
 from parallax.archive import HeadlineRow
@@ -23,7 +25,7 @@ def test_headline_content_is_rendered_as_literal_text() -> None:
         url="https://example.test/[story]",
         canonical_url="https://example.test/[story]",
         published_at=None,
-        first_seen_at="2026-09-17T00:00:00+00:00",
+        first_seen_at=datetime.fromisoformat("2026-09-17T00:00:00+00:00"),
     )
 
     Presenter(console).headlines([row])
@@ -41,8 +43,8 @@ def test_feed_renders_deduplicated_source_and_literal_content() -> None:
         HeadlineFeedRow(
             title="Title [bold]literal[/bold]",
             url="https://example.test/[story]",
-            published_at="2026-09-17T10:00:00+00:00",
-            first_seen_at="2026-09-17T10:05:00+00:00",
+            published_at=datetime.fromisoformat("2026-09-17T10:00:00+00:00"),
+            first_seen_at=datetime.fromisoformat("2026-09-17T10:05:00+00:00"),
             source_name="Alpha [red]literal[/red]",
             duplicate_count=2,
         ),
@@ -64,7 +66,7 @@ def test_feed_renders_unknown_publication_time() -> None:
             title="Undated",
             url="https://example.test/undated",
             published_at=None,
-            first_seen_at="2026-09-17T10:05:00+00:00",
+            first_seen_at=datetime.fromisoformat("2026-09-17T10:05:00+00:00"),
             source_name="Alpha",
             duplicate_count=0,
         ),
@@ -82,7 +84,7 @@ def test_feed_renders_order_specific_title_and_first_seen() -> None:
             title="Undated",
             url="https://example.test/undated",
             published_at=None,
-            first_seen_at="2026-09-17T10:05:00+00:00",
+            first_seen_at=datetime.fromisoformat("2026-09-17T10:05:00+00:00"),
             source_name="Alpha",
             duplicate_count=0,
         ),

@@ -975,3 +975,61 @@ def test_injected_backend_keeps_client_policy_and_owned_close() -> None:
         transport.request(
             RequestSpec("GET", source.endpoint.url), source, StreamState(source.id)
         )
+
+
+def test_body_timeout_releases_host_slot_before_backoff(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+
+    backoff = threading.Event()
+    resume = threading.Event()
+    closed = threading.Event()
+    attempts = 0
+
+    class TimeoutStream(httpx.SyncByteStream):
+        def __iter__(self) -> Iterator[bytes]:
+            yield b"partial"
+            raise httpx.ReadTimeout("body stalled")
+
+        def close(self) -> None:
+            closed.set()
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        if request.url.path == "/first":
+            attempts += 1
+            if attempts == 1:
+                return httpx.Response(200, stream=TimeoutStream())
+        return httpx.Response(200, content=b"ok")
+
+    def sleep(delay: float) -> None:
+        assert closed.is_set(), "response must close before backoff"
+        backoff.set()
+        assert resume.wait(timeout=5)
+
+    monkeypatch.setattr("parallax.transport.time.sleep", sleep)
+    source = _source("https://example.test/first")
+    state = StreamState(source.id)
+    with (
+        HttpTransport(
+            HttpConfig(max_connections_per_host=1), backend=httpx.MockTransport(respond)
+        ) as transport,
+        ThreadPoolExecutor(max_workers=2) as executor,
+    ):
+        first = executor.submit(
+            transport.request, RequestSpec("GET", source.endpoint.url), source, state
+        )
+        try:
+            assert backoff.wait(timeout=5)
+            second = executor.submit(
+                transport.request,
+                RequestSpec("GET", "https://example.test/second"),
+                source,
+                state,
+            )
+            assert second.result(timeout=2).content == b"ok"
+        finally:
+            resume.set()
+        assert first.result(timeout=5).content == b"ok"
+        assert attempts == 2

@@ -10,7 +10,7 @@ from typer.testing import CliRunner
 
 from parallax.archive import HeadlineRow
 from parallax.cli import app
-from parallax.config import Source
+from parallax.config import HttpConfig, Source
 from parallax.domain import IngestionBatchResult, IngestionFailure, ItemKind
 from source_factory import make_source
 
@@ -42,8 +42,8 @@ def _headline_row(
         title=title,
         url=url,
         canonical_url=url,
-        published_at=published_at,
-        first_seen_at=first_seen_at,
+        published_at=datetime.fromisoformat(published_at) if published_at else None,
+        first_seen_at=datetime.fromisoformat(first_seen_at),
     )
 
 
@@ -542,3 +542,29 @@ def test_lint_collector_and_diagnostics_share_source_preflight(
         assert len(requests) == (0 if error else 1)
         if error:
             assert error in diagnostic.detail
+
+
+@pytest.mark.parametrize("fail", [False, True])
+def test_run_once_reports_isolated_source_failures(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fail: bool,
+) -> None:
+    import httpx
+
+    from parallax.transport import HttpTransport
+
+    config = _write_catalog(tmp_path)
+    payload = b'<rss version="2.0"><channel><title>Fixture</title><item><title>Headline</title><link>https://example.test/story</link></item></channel></rss>'
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(503 if fail else 200, content=payload)
+
+    def transport(http_config: HttpConfig) -> HttpTransport:
+        return HttpTransport(http_config, backend=httpx.MockTransport(respond))
+
+    monkeypatch.setattr("parallax.transport.HttpTransport", transport)
+    result = CliRunner().invoke(app, ["run", "--once", "--config", str(config)])
+    assert result.exit_code == (1 if fail else 0), result.output
+    if fail:
+        assert "HTTPStatusError" in result.output

@@ -37,7 +37,11 @@ MAX_SEARCH_HITS = 100
 _POINTS = re.compile(r"^(\d+)")
 
 
-def validate_options(source: Source) -> dict[str, int]:
+def validate_options(source: Source) -> None:
+    resolve_history_options(source)
+
+
+def resolve_history_options(source: Source) -> dict[str, int]:
     return positive_integer_options(
         source, {"history_max_items": DEFAULT_HISTORY_MAX_ITEMS}
     )
@@ -65,7 +69,7 @@ class HackerNewsHotAdapter:
         source: Source,
         since: datetime,
     ) -> HistoryPlan:
-        options = validate_options(source)
+        options = resolve_history_options(source)
         hits = min(options["history_max_items"], MAX_SEARCH_HITS)
         requests = (
             RequestSpec(

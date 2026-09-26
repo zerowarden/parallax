@@ -285,9 +285,12 @@ class Source(SourceDefinition):
         )
 
 
-class CatalogRoot(ConfigModel):
+class ArchiveConfigRoot(ConfigModel):
     schema_version: int
     app: AppConfig = Field(default_factory=AppConfig)
+
+
+class CatalogRoot(ArchiveConfigRoot):
     http: HttpConfig = Field(default_factory=HttpConfig)
     ingestion: IngestionConfig = Field(default_factory=IngestionConfig)
     scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)

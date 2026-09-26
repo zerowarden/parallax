@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from parallax.config import SchedulerConfig, SourceCatalog
+from parallax.domain import IngestionBatchResult
 from parallax.ingest import IngestionService
 
 if TYPE_CHECKING:
@@ -27,7 +28,7 @@ class Scheduler:
         self._ingestion = ingestion
         self._config = config
 
-    def run_due_once(self) -> int:
+    def run_due_once(self) -> IngestionBatchResult:
         now = datetime.now(UTC)
         due = []
         for source in self._catalog.enabled_sources():
@@ -46,18 +47,15 @@ class Scheduler:
             )
         if due:
             result = self._ingestion.fetch_sources(due)
-            succeeded = len(result.summaries)
-            failed = len(result.failures)
         else:
-            succeeded = 0
-            failed = 0
+            result = IngestionBatchResult((), ())
         LOGGER.info(
             "operation=scheduler_cycle attempted=%s succeeded=%s failed=%s",
             len(due),
-            succeeded,
-            failed,
+            len(result.summaries),
+            len(result.failures),
         )
-        return len(due)
+        return result
 
     def run_forever(self) -> None:
         LOGGER.info(

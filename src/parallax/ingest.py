@@ -24,12 +24,14 @@ from parallax.config import IngestionConfig, Source
 from parallax.domain import (
     HistoryOutcome,
     HistoryStatus,
+    HistoryStopReason,
     IngestionBatchResult,
     IngestionFailure,
     IngestionSummary,
     ObservedBatch,
     ObservedCandidate,
     ParsedBatch,
+    RunKind,
     StreamState,
     ValidatedBatch,
 )
@@ -82,7 +84,8 @@ class IngestionService:
         since: datetime | None = None,
     ) -> IngestionSummary:
         """Own one source's run from creation through success or final failure."""
-        run_id = self._storage.start_fetch_run(source.id)
+        run_kind: RunKind = "history" if since is not None else "live"
+        run_id = self._storage.start_fetch_run(source.id, run_kind)
         attempted_at = datetime.now(UTC)
 
         try:
@@ -90,7 +93,7 @@ class IngestionService:
             prepared = self._prepare(source, state, since)
             return self._commit_prepared(source, run_id, attempted_at, prepared)
         except BaseException as error:
-            self._record_run_failure(source, run_id, attempted_at, error)
+            self._record_run_failure(source, run_id, run_kind, attempted_at, error)
             raise
 
     def fetch_sources(
@@ -107,6 +110,7 @@ class IngestionService:
             len(sources),
             self._ingestion_config.max_concurrent_sources,
         )
+        run_kind: RunKind = "history" if since is not None else "live"
         completed: dict[int, IngestionSummary] = {}
         failures: dict[int, IngestionFailure] = {}
         pending: dict[Future[_PreparedOutcome], tuple[int, Source, int, datetime]] = {}
@@ -125,7 +129,7 @@ class IngestionService:
                     index, source = next(source_iter)
                 except StopIteration:
                     return False
-                run_id = self._storage.start_fetch_run(source.id)
+                run_id = self._storage.start_fetch_run(source.id, run_kind)
                 starting = (index, source, run_id, datetime.now(UTC))
                 state = self._storage.get_stream_state(source.id)
                 future = executor.submit(self._prepare, source, state, since)
@@ -155,7 +159,7 @@ class IngestionService:
                             raise
                         except Exception as error:
                             recorded = self._record_run_failure(
-                                source, run_id, attempted_at, error
+                                source, run_id, run_kind, attempted_at, error
                             )
                             if not recorded:
                                 raise
@@ -176,7 +180,9 @@ class IngestionService:
                 if starting is not None:
                     unfinished += (starting,)
                 for _, source, run_id, attempted_at in unfinished:
-                    self._record_run_failure(source, run_id, attempted_at, error)
+                    self._record_run_failure(
+                        source, run_id, run_kind, attempted_at, error
+                    )
                 raise
 
         summaries = tuple(completed[index] for index in sorted(completed))
@@ -235,7 +241,7 @@ class IngestionService:
         warnings: list[str] = []
         rejected = 0
         pages = 0
-        reason = "page_budget"
+        reason: HistoryStopReason = "page_budget"
         status: HistoryStatus = "truncated"
         for request in plan.requests:
             response = self._transport.request(request, source, state)
@@ -346,6 +352,7 @@ class IngestionService:
         self,
         source: Source,
         run_id: int,
+        run_kind: RunKind,
         attempted_at: datetime,
         error: BaseException,
     ) -> bool:
@@ -356,16 +363,17 @@ class IngestionService:
         propagates to the caller, including interruptions.
         """
         message = _error_message(error)
-        next_run_at = attempted_at
+        next_run_at = None
         recorded = False
         try:
-            state = self._storage.get_stream_state(source.id)
-            delay = min(
-                self._ingestion_config.retry_max_seconds,
-                self._ingestion_config.retry_base_seconds
-                * (2 ** min(20, state.consecutive_failures)),
-            )
-            next_run_at = attempted_at + timedelta(seconds=delay)
+            if run_kind == "live":
+                state = self._storage.get_stream_state(source.id)
+                delay = min(
+                    self._ingestion_config.retry_max_seconds,
+                    self._ingestion_config.retry_base_seconds
+                    * (2 ** min(20, state.consecutive_failures)),
+                )
+                next_run_at = attempted_at + timedelta(seconds=delay)
             status = (
                 error.response.status_code
                 if isinstance(error, httpx.HTTPStatusError)
@@ -392,7 +400,7 @@ class IngestionService:
         source_id: str,
         run_id: int,
         error: BaseException,
-        next_run_at: datetime,
+        next_run_at: datetime | None,
         message: str | None = None,
     ) -> None:
         message = message or _error_message(error)
@@ -401,7 +409,7 @@ class IngestionService:
             run_id,
             type(error).__name__,
             message,
-            next_run_at.isoformat(),
+            next_run_at.isoformat() if next_run_at is not None else None,
         )
         LOGGER.error(
             "operation=fetch_failure source_id=%s fetch_run_id=%s "

@@ -137,9 +137,7 @@ def test_history_preserves_observation_order_for_wording_and_urls(
         assert len(rows) == 1
         assert rows[0].title == "Newer"
         assert rows[0].url == "https://example.test/Newer"
-        assert datetime.fromisoformat(rows[0].first_seen_at) == OBSERVED_AT + timedelta(
-            microseconds=100
-        )
+        assert rows[0].first_seen_at == OBSERVED_AT + timedelta(microseconds=100)
         assert storage.latest_snapshot_headlines() == []
         assert all(
             storage.get_stream_state(source.id).last_success_at is None
@@ -199,9 +197,7 @@ def test_history_keeps_each_pages_observation_time_before_empty_page(
         rows = storage.browse_headlines(
             view="all", since=OBSERVED_AT, until=datetime.now(UTC), limit=10, offset=0
         )
-        assert {
-            row.title: datetime.fromisoformat(row.first_seen_at) for row in rows
-        } == {
+        assert {row.title: row.first_seen_at for row in rows} == {
             "Page 1": OBSERVED_AT + timedelta(microseconds=1),
             "Page 2": OBSERVED_AT + timedelta(microseconds=2),
         }

@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 from typing import cast
 
 from parallax.config import SchedulerConfig, Source, SourceCatalog
-from parallax.domain import IngestionBatchResult, StreamState
+from parallax.domain import IngestionBatchResult, IngestionFailure, StreamState
 from parallax.ingest import IngestionService
 from parallax.scheduler import Scheduler
 from parallax.storage import Storage
@@ -30,10 +30,13 @@ class _Storage:
 class _Ingestion:
     def __init__(self) -> None:
         self.calls: list[list[Source]] = []
+        self.result = IngestionBatchResult(
+            (), (IngestionFailure("due", "Error", "failed"),)
+        )
 
     def fetch_sources(self, sources: list[Source]) -> IngestionBatchResult:
         self.calls.append(sources)
-        return IngestionBatchResult((), ())
+        return self.result
 
 
 def test_scheduler_dispatches_only_due_sources() -> None:
@@ -58,7 +61,7 @@ def test_scheduler_dispatches_only_due_sources() -> None:
         SchedulerConfig(),
     )
 
-    assert scheduler.run_due_once() == 1
+    assert scheduler.run_due_once() is ingestion.result
     assert ingestion.calls == [[due]]
 
 
@@ -81,5 +84,5 @@ def test_scheduler_does_not_dispatch_when_nothing_is_due() -> None:
         SchedulerConfig(),
     )
 
-    assert scheduler.run_due_once() == 0
+    assert scheduler.run_due_once() == IngestionBatchResult((), ())
     assert ingestion.calls == []

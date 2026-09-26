@@ -70,7 +70,7 @@ def _record(
     candidates: Sequence[HeadlineCandidate],
     observed_at: datetime,
 ) -> None:
-    run_id = storage.start_fetch_run(source.id)
+    run_id = storage.start_fetch_run(source.id, "live")
     storage.record_success(
         source,
         run_id,
@@ -182,7 +182,7 @@ def test_today_window_starts_at_hong_kong_midnight() -> None:
     ],
 )
 def test_format_relative(value: str, expected: str) -> None:
-    assert format_relative(value, NOW) == expected
+    assert format_relative(datetime.fromisoformat(value), NOW) == expected
 
 
 @pytest.mark.parametrize(
@@ -795,7 +795,7 @@ from parallax.web import format_relative, window_start
 assert zoneinfo.TZPATH == ()
 now = datetime(2026, 9, 18, 4, tzinfo=UTC)
 assert window_start(1, now) == datetime(2026, 9, 17, 16, tzinfo=UTC)
-assert format_relative("2026-09-18T03:00:00+00:00", now) == "1h ago"
+assert format_relative(datetime(2026, 9, 18, 3, tzinfo=UTC), now) == "1h ago"
 """
     result = subprocess.run(
         [sys.executable, "-c", script],

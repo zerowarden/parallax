@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from typing import TypeGuard
 
 from parallax.domain import (
@@ -18,50 +18,46 @@ from parallax.storage import foundation
 from parallax.storage.encoding import decode_datetime, timestamp_now
 
 
-def _analysis_item(
-    event: ChangeEvent,
-    row: sqlite3.Row | None,
-) -> AnalysisItem:
-    if row is None:
-        raise ValueError(f"change event {event.seq} is missing from the change log")
+def _analysis_item(row: sqlite3.Row) -> AnalysisItem:
+    seq = int(row["seq"])
+    item_id = int(row["item_id"])
     if row["observation_source_id"] is None:
         raise ValueError(
-            f"change event {event.seq} references missing observation "
-            f"{event.source_id!r} of item {event.item_id}"
+            f"change event {seq} references missing observation "
+            f"{row['event_source_id']!r} of item {item_id}"
         )
     version_id = row["item_version_id"]
     if version_id is None or row["title"] is None:
         raise ValueError(
-            f"change event {event.seq} references missing item version "
-            f"{event.item_version_id}"
+            f"change event {seq} references missing item version "
+            f"{row['item_version_id']}"
         )
     source_language = row["source_language"]
     if source_language is None:
         raise ValueError(
-            f"change event {event.seq} references missing source "
-            f"{row['event_source_id']!r}"
+            f"change event {seq} references missing source {row['event_source_id']!r}"
         )
     stream_kind = _classification_value(
-        row["stream_kind"], is_stream_kind, item_id=event.item_id, label="stream kind"
+        row["stream_kind"], is_stream_kind, item_id=item_id, label="stream kind"
     )
     item_kind = _classification_value(
-        row["item_kind"], is_item_kind, item_id=event.item_id, label="item kind"
+        row["item_kind"], is_item_kind, item_id=item_id, label="item kind"
     )
     entity_kind = _optional_classification_value(
-        row["entity_kind"], is_entity_kind, item_id=event.item_id, label="entity kind"
+        row["entity_kind"], is_entity_kind, item_id=item_id, label="entity kind"
     )
     item_variant = _optional_classification_value(
         row["item_variant"],
         is_item_variant,
-        item_id=event.item_id,
+        item_id=item_id,
         label="item variant",
     )
     first_seen_at = decode_datetime(row["first_seen_at"])
     if first_seen_at is None:
-        raise ValueError(f"item {event.item_id} has no first_seen_at")
+        raise ValueError(f"item {item_id} has no first_seen_at")
     return AnalysisItem(
-        change_seq=event.seq,
-        event_type=event.event_type,
+        change_seq=seq,
+        event_type=str(row["event_type"]),
         item_id=int(row["item_id"]),
         item_version_id=int(version_id),
         title=str(row["title"]),
@@ -141,9 +137,11 @@ def get_consumer_checkpoint(connection: sqlite3.Connection, consumer_name: str) 
     return 0 if row is None else int(row["last_seq"])
 
 
-def set_consumer_checkpoint(
+def advance_consumer_checkpoint(
     connection: sqlite3.Connection, consumer_name: str, last_seq: int
 ) -> None:
+    if last_seq < 0:
+        raise ValueError("consumer checkpoint must not be negative")
     now = timestamp_now()
     with foundation.transaction(connection):
         connection.execute(
@@ -151,29 +149,27 @@ def set_consumer_checkpoint(
             INSERT INTO consumer_checkpoints(consumer_name, last_seq, updated_at)
             VALUES (?, ?, ?)
             ON CONFLICT(consumer_name) DO UPDATE SET
-                last_seq=excluded.last_seq,
+                last_seq=MAX(consumer_checkpoints.last_seq, excluded.last_seq),
                 updated_at=excluded.updated_at
             """,
             (consumer_name, last_seq, now),
         )
 
 
-def hydrate_analysis_items(
+def analysis_items_after(
     connection: sqlite3.Connection,
-    events: Sequence[ChangeEvent],
+    checkpoint: int,
+    limit: int = 100,
 ) -> list[AnalysisItem]:
-    """Hydrate committed change events into typed analysis inputs.
+    """Read committed events and exact versions in sequence order in one query.
 
-    Events are returned in the supplied order. A missing item, missing or
-    mismatched item version, missing observation, unknown classification,
-    or unreadable timestamp fails clearly so a consumer never silently
-    skips committed evidence.
+    Left joins retain corrupt events so decoding fails clearly rather than
+    silently skipping committed evidence and advancing past it.
     """
-    if not events:
-        return []
-    placeholders = ", ".join("?" for _ in events)
+    if checkpoint < 0 or limit < 1:
+        raise ValueError("checkpoint must be nonnegative and limit must be positive")
     rows = connection.execute(
-        f"""
+        """
         SELECT
             cl.seq,
             cl.event_type,
@@ -199,10 +195,10 @@ def hydrate_analysis_items(
         LEFT JOIN observations o
           ON o.item_id = cl.item_id AND o.source_id = cl.source_id
         LEFT JOIN sources src ON src.source_id = cl.source_id
-        WHERE cl.seq IN ({placeholders})
+        WHERE cl.seq > ?
         ORDER BY cl.seq
+        LIMIT ?
         """,
-        tuple(event.seq for event in events),
+        (checkpoint, limit),
     ).fetchall()
-    by_seq = {int(row["seq"]): row for row in rows}
-    return [_analysis_item(event, by_seq.get(event.seq)) for event in events]
+    return [_analysis_item(row) for row in rows]

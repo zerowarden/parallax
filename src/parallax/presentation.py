@@ -9,6 +9,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
+from parallax.archive import FetchRunRow, HeadlineRow
 from parallax.config import Source
 from parallax.diagnostic_models import SourceDiagnostic
 from parallax.domain import (
@@ -17,7 +18,6 @@ from parallax.domain import (
     StreamState,
 )
 from parallax.feed import FeedOrder, HeadlineFeedRow
-from parallax.read_models import FetchRunRow, HeadlineRow
 
 FAILED_STATUS = "failed"
 FEED_TITLES = {
@@ -193,8 +193,8 @@ class Presenter:
                 table.add_row(
                     str(row.position or "-"),
                     _literal(row.title),
-                    _literal(row.published_at or "unknown"),
-                    _literal(row.first_seen_at),
+                    _literal(_dt(row.published_at) if row.published_at else "unknown"),
+                    _literal(_dt(row.first_seen_at)),
                     _literal(row.url),
                 )
             self.console.print(table)
@@ -216,8 +216,8 @@ class Presenter:
             table.add_row(
                 str(count),
                 _literal(row.title),
-                _literal(row.published_at or "unknown"),
-                _literal(row.first_seen_at),
+                _literal(_dt(row.published_at) if row.published_at else "unknown"),
+                _literal(_dt(row.first_seen_at)),
                 _literal(source),
                 _literal(row.url),
             )
@@ -309,6 +309,7 @@ class Presenter:
         run_table = Table(title=_literal(title))
         run_table.add_column("Run")
         run_table.add_column("Source")
+        run_table.add_column("Kind")
         run_table.add_column("Status")
         run_table.add_column("HTTP")
         run_table.add_column("Items", justify="right")
@@ -322,6 +323,7 @@ class Presenter:
             run_table.add_row(
                 str(run.id),
                 _literal(run.source_id),
+                _literal(run.run_kind),
                 _literal(run.status),
                 str(run.http_status or "-"),
                 str(run.item_count),

@@ -8,6 +8,7 @@ from pydantic import ValidationError
 from parallax.config.catalog import ResolvedConfig
 from parallax.config.models import (
     AppConfig,
+    ArchiveConfigRoot,
     CatalogRoot,
     Source,
     SourceDefinition,
@@ -50,10 +51,17 @@ def load_catalog(
 def load_archive_config(root_path: Path) -> AppConfig:
     """Resolve archive paths without loading source definitions or adapters."""
     root_path = root_path.expanduser().resolve()
-    return _resolve_app_paths(_load_root(root_path).app, root_path.parent)
+    raw = _read_versioned_root(root_path)
+    try:
+        root = ArchiveConfigRoot.model_validate(
+            {key: raw[key] for key in ("schema_version", "app") if key in raw}
+        )
+    except ValidationError as exc:
+        raise CatalogError(f"Invalid archive config {root_path}:\n{exc}") from exc
+    return _resolve_app_paths(root.app, root_path.parent)
 
 
-def _load_root(root_path: Path) -> CatalogRoot:
+def _read_versioned_root(root_path: Path) -> dict[str, object]:
     raw = _read_toml(root_path)
     version = raw.get("schema_version")
     if version != SCHEMA_VERSION:
@@ -61,6 +69,11 @@ def _load_root(root_path: Path) -> CatalogRoot:
             f"Unsupported schema_version {version!r} in {root_path}; "
             f"expected {SCHEMA_VERSION}"
         )
+    return raw
+
+
+def _load_root(root_path: Path) -> CatalogRoot:
+    raw = _read_versioned_root(root_path)
     try:
         root = CatalogRoot.model_validate(raw)
     except ValidationError as exc:

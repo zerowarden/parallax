@@ -4,7 +4,6 @@ from collections.abc import Iterator
 from typing import TYPE_CHECKING
 
 from parallax.domain import AnalysisItem
-from parallax.processing.changelog import ChangeLogReader
 
 if TYPE_CHECKING:
     from parallax.storage import Storage
@@ -20,11 +19,11 @@ class AnalysisInputReader:
 
     def __init__(self, storage: Storage, consumer_name: str) -> None:
         self._storage = storage
-        self._change_log = ChangeLogReader(storage, consumer_name)
+        self._consumer_name = consumer_name
 
     def pending(self, limit: int = 100) -> Iterator[AnalysisItem]:
-        events = list(self._change_log.pending(limit))
-        yield from self._storage.hydrate_analysis_items(events)
+        checkpoint = self._storage.get_consumer_checkpoint(self._consumer_name)
+        yield from self._storage.analysis_items_after(checkpoint, limit)
 
     def checkpoint(self, seq: int) -> None:
-        self._change_log.checkpoint(seq)
+        self._storage.advance_consumer_checkpoint(self._consumer_name, seq)

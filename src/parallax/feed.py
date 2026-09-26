@@ -2,13 +2,12 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Literal
 
-from parallax.archive import BrowseHeadlineReader
+from parallax.archive import BrowseHeadlineReader, HeadlineRow
 from parallax.domain import BrowseView
 from parallax.normalization import normalize_title_for_version
-from parallax.read_models import HeadlineRow
 
 FeedOrder = Literal["observed", "published"]
 PAGE_SIZE = 100
@@ -16,7 +15,7 @@ PAGE_SIZE = 100
 
 @dataclass(frozen=True, slots=True)
 class HeadlineGroup:
-    """One exact story group with every observed appearance."""
+    """One heuristic story cluster with every observed appearance."""
 
     representative: HeadlineRow
     appearances: tuple[HeadlineRow, ...]
@@ -26,8 +25,8 @@ class HeadlineGroup:
 class HeadlineFeedRow:
     title: str
     url: str
-    published_at: str | None
-    first_seen_at: str
+    published_at: datetime | None
+    first_seen_at: datetime
     source_name: str
     duplicate_count: int
     source_role: Literal["wording", "appearance"] = "wording"
@@ -95,11 +94,12 @@ def build_headline_groups(
     *,
     order: FeedOrder,
 ) -> tuple[HeadlineGroup, ...]:
-    """Collapse per-source headlines into exact story groups.
+    """Cluster per-source headlines using URL and title heuristics.
 
-    Two observations describe the same resource when their stored canonical
+    Two observations join a cluster when their stored canonical
     URLs match, or when their normalized headlines and item kinds match;
-    equality is transitive, so the union of both relations forms the groups.
+    the transitive union forms clusters and can link unrelated stories with
+    generic titles. These clusters do not establish exact story identity.
     ``observed`` groups include every row and rank by the latest
     ``first_seen_at``; ``published`` groups require a known ``published_at``
     and rank strictly by it. This is a read model: nothing is persisted and
@@ -138,7 +138,7 @@ def build_headline_groups(
 def build_headline_feed(
     groups: Iterable[HeadlineGroup],
 ) -> tuple[HeadlineFeedRow, ...]:
-    """Flatten exact groups into the display feed."""
+    """Flatten story clusters into the display feed."""
     return tuple(_feed_row(group) for group in groups)
 
 
@@ -156,10 +156,10 @@ def _ordered_rows(rows: Iterable[HeadlineRow], order: FeedOrder) -> list[Headlin
     return ordered
 
 
-def _chronology_key(row: HeadlineRow, order: FeedOrder) -> str:
+def _chronology_key(row: HeadlineRow, order: FeedOrder) -> datetime:
     if order == "observed":
         return row.first_seen_at
-    return row.published_at or ""
+    return row.published_at or datetime.min.replace(tzinfo=UTC)
 
 
 def _representative(
@@ -171,7 +171,7 @@ def _representative(
     dated = [row for row in members if row.published_at is not None]
     if not dated:
         return None
-    return max(dated, key=lambda row: row.published_at or "")
+    return max(dated, key=lambda row: _chronology_key(row, order))
 
 
 def _feed_row(group: HeadlineGroup) -> HeadlineFeedRow:
@@ -199,7 +199,7 @@ def _headline_feed_row(
 
 
 def _identity_keys(row: HeadlineRow, index: int) -> tuple[str, str]:
-    """Return the URL and title keys that decide exact group membership."""
+    """Return the URL and title keys that decide heuristic cluster membership."""
     url_key = f"url:{row.canonical_url}" if row.canonical_url else ""
     entity = row.entity_kind or ""
     title_key = (

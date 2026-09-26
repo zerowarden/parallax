@@ -32,6 +32,10 @@ StreamKind = Literal[
 ]
 BrowseSurface = Literal["news", "discover"]
 BrowseView = Literal["all", "news", "discover"]
+RunKind = Literal["live", "history"]
+HistoryStopReason = Literal[
+    "page_budget", "item_budget", "upstream_exhausted", "unsupported"
+]
 HistoryStatus = Literal["truncated", "exhausted", "unsupported"]
 ProviderKind = Literal[
     "publisher",
@@ -181,6 +185,12 @@ class HistoryPage:
 
 @dataclass(frozen=True, slots=True)
 class HistoryOutcome:
+    """History coverage; items_accepted counts identities before storage alias collapse.
+
+    This count consumes the history item budget. IngestionSummary.item_count counts
+    resolved persistent items and may be smaller.
+    """
+
     requested_since: datetime
     requested_until: datetime
     observed_since: datetime | None
@@ -188,7 +198,7 @@ class HistoryOutcome:
     pages_requested: int
     items_accepted: int
     status: HistoryStatus
-    stop_reason: str
+    stop_reason: HistoryStopReason
 
 
 @dataclass(frozen=True, slots=True)

@@ -58,6 +58,8 @@ version preserved in that source's latest snapshot.
 
 `sources` loads only the catalog. `show`, `status`, `runs`, and `web` open an
 existing archive read-only, using its stored catalog without reconciliation.
+They validate only `schema_version` and `[app]`; invalid collector-only settings
+in `[http]`, `[ingestion]`, `[scheduler]`, or `[validation]` do not block reading.
 `doctor` probes the configured sources but also opens the archive read-only.
 Initialize an archive before using these commands. Only collector commands
 (`init`, `fetch`, `fetch-all`, `run`) reconcile the catalog. An existing empty
@@ -71,7 +73,11 @@ publication history. Unsupported adapters return `unsupported` without a live
 refresh. Each result reports the requested window, earliest/latest accepted
 publication timestamps, pages fetched, accepted items, and a stopping reason.
 This range is observed evidence, not a guarantee of complete window coverage.
-The outcome is also retained in `fetch_runs.history_json`.
+The outcome is also retained in `fetch_runs.history_json`. `items_accepted` counts
+pre-persistence identities and consumes the history item budget; the summary
+`item_count` counts resolved persistent items after URL-alias collapse and can be
+smaller. Stop reasons are `page_budget`, `item_budget`, `upstream_exhausted`, and
+`unsupported`.
 
 Now News (`now_news`, configured stream `now-news`) uses the public, undocumented
 `https://newsapi1.now.com/pccw-news-api/api/getRankNewsList` JSON listing without
@@ -87,7 +93,9 @@ Hacker News history retains its one-page Algolia search budget (at most 100
 hits), with a separate `history_max_items` option (default 1000). It reports
 truncation unless the response establishes exhaustion. No live re-verification
 was performed for these history changes; parser contracts use checked-in
-fixtures. A successful backfill preserves the live snapshot and freshness state.
+fixtures. Every run records a `live` or `history` kind. Historical starts,
+successes, failures, and abandoned-run recovery leave live attempts, scheduling,
+failure counters, validators, and freshness unchanged.
 Each accepted item retains its originating HTTP page's observation timestamp,
 including microseconds. Duplicate items within a backfill keep the first accepted
 candidate and its timestamp; a later empty page cannot change that provenance.
@@ -147,7 +155,9 @@ was performed for this configuration clarification.
 
 The database is a local archive with schema version 1 and no upgrade migrations.
 This format stores fixed-width UTC microseconds, conditional-request identities,
-and history outcomes. Version 0 archives are rejected without modification:
+history outcomes, run kinds, and the original/canonical URL observed in each
+snapshot entry. Version 0 archives and older version 1 layouts lacking these
+fields are rejected without modification:
 preserve the old archive, configure a fresh database path, and run
 `uv run parallax init`. Previously discarded timestamp precision cannot be
 recovered. Equal observation timestamps break title ties by version ID and
@@ -162,14 +172,23 @@ the lock file can remain and must not be removed while a collector is running.
 Within that process HTTP preparation is bounded and concurrent; commits remain
 serial on the owning thread. There are no per-source leases.
 After acquiring ownership, startup finalizes leftover `running` records as
-`AbandonedRun` and makes those sources due again. Source payload failures may be
+`AbandonedRun` and makes sources with abandoned **live** runs due again.
+Abandoned history runs are finalized without changing source retry state. Source payload failures may be
 isolated after rollback; SQLite failures abort a batch with their original
 category. Failure recording is best effort if SQLite is unavailable. Readers
 neither take collector ownership nor recover runs. Independent processors can
 read committed changes and write their own checkpoints without acquiring the
-collector lock. Direct ingestion/storage callers must hold `collector_lock`
+collector lock. `advance_consumer_checkpoint` is monotonic, so a stale consumer
+cannot rewind another consumer's progress. `AnalysisInputReader` calls
+`analysis_items_after(checkpoint, limit)` to read committed events and their exact
+versions in one query; `ChangeLogReader` remains available for raw events.
+Direct ingestion/storage callers must hold `storage.locking.collector_lock`
 around the entire collection workflow, including recovery and due-state reads;
 individual SQLite transactions alone do not enforce collector ownership.
+POSIX locking is loaded only for collection; archive storage imports do not
+require `fcntl`. Logging handlers belong to the CLI invocation and are closed on
+normal or exceptional exit; constructing a runtime does not change global logging.
+`run --once` renders its batch result and exits nonzero on isolated source failures.
 
 Conditional validators are bound to a hash of the effective request, including
 method, URL, parameters, headers/auth, body, and representation-selection
@@ -186,7 +205,9 @@ prohibitions enabled; transport response-size limits remain independent.
 Adapters require strings for headline text; structured values fail parsing.
 Fields such as numeric IDs, counts, and timestamps opt into scalar conversion.
 Shared numeric refiners exclude booleans and nonfinite numbers; each adapter
-retains its own unit and range rules. Candidate metrics use JSON-compatible values.
+retains its own unit and range rules. The shared persistence boundary rejects
+nonfinite or unserializable candidate metrics and rolls back the batch, for both
+live and historical writes.
 Configuration endpoints, candidate URLs, and browser links share lexical HTTP(S)
 URL validation, including rejection of raw whitespace and control characters.
 
@@ -207,7 +228,10 @@ make check
 
 Ruff handles linting and formatting. Type checks use mypy for application code
 and basedpyright for application code and tests. The local pre-commit hooks run
-the same lint, format, and type checks as `make check`.
+the same lint, format, and type checks as `make check`. The GitHub Actions workflow
+in `.github/workflows/check.yml` runs `make check` on pushes and pull requests
+with Python 3.12 and locked development dependencies. It follows the official
+[uv GitHub Actions integration](https://docs.astral.sh/uv/guides/integration/github/).
 
 Live-source checks are opt-in:
 
@@ -218,12 +242,12 @@ uv run pytest -m live
 Live checks use the same adapter executor as collection. Stepped adapters may
 make at most five requests and must observe at least one HTTP response; completion
 after the fifth request is valid, while completion before any request cannot
-supply an observation timestamp. Adapter-owned option validators serve both
-catalog linting and history planning; ingestion consumes the validated budgets.
+supply an observation timestamp. Adapter-owned preflight functions return no value; separate history-option
+resolvers supply validated budgets to history planning and ingestion.
 Resolved configuration and archive readers share the `SourceCatalog` lookup API.
 
 Adapter registrations live in `adapters/registry.py`. Each registration pairs its
-implementation with its source validator. `resolve_source(source)` performs both
+implementation with a typed `preflight(Source) -> None` validator. `resolve_source(source)` performs both
 lookup and preflight; lint, collector startup, ingestion, diagnostics, and live
 tests all use it. Invalid diagnostic configuration reports `configuration-broken`
 before making an HTTP request. Source parsers retain their own option semantics.
@@ -234,9 +258,9 @@ applicability. Full results require a parsed batch; not-modified results carry
 conditional metadata. Combined representations have no stream validators.
 History keeps its separate incremental paging and per-candidate observations.
 
-Archive projections (`HeadlineRow`, `FetchRunRow`) live in `read_models.py`;
-`archive.py` retains the existing browse and health reader protocols and
-re-exports the rows for compatibility. Diagnostic values live in
+Archive projections (`HeadlineRow`, `FetchRunRow`) and browse/health reader
+protocols live together in `archive.py`. Storage decodes timestamps into aware
+UTC datetimes; presentation owns their formatting. Diagnostic values live in
 `diagnostic_models.py`. Feed logic and presentation depend on these contracts.
 Runtime builders import concrete collection services when
 constructing the requested capability, so catalog commands and archive readers
@@ -244,22 +268,30 @@ do not construct a collector. The collector owns no diagnostic service.
 
 `Storage` remains the public façade over a single owned SQLite connection:
 
-- `storage.foundation` owns connections, schema compatibility, transactions and
-  collector locking; `storage.encoding` owns SQLite value conversions.
+- `storage.foundation` owns connections, schema compatibility, and internal
+  transactions; `storage.locking` owns collector locking. `storage.encoding` owns
+  SQLite value conversions and strict JSON metrics serialization.
 - `storage.catalog` reconciles the persisted source catalog.
 - `storage.writer` owns atomic ingestion writes and calls `storage.identity`
   for persistent identity resolution on that same connection.
 - `storage.queries` serves browse, snapshot and source-health reads through the
   existing reader capabilities.
-- `storage.changes` reads and hydrates committed events and manages independent
-  consumer checkpoints.
+- `storage.changes` projects committed events directly into analysis inputs and
+  manages independent, monotonic consumer checkpoints.
 
 A refresh commits items, URL aliases, observations, title versions, snapshot
 entries, change events, fetch-run completion and successful stream state in one
 transaction. Identity helpers neither open connections nor commit. Historical
-writes keep their existing atomic transaction without advancing live snapshots
-or scheduling. Splitting modules does not introduce per-table repositories or
-change the schema.
+writes keep their atomic transaction without advancing live snapshots or
+scheduling. Snapshot title, position, metrics, and URLs stay pinned to their
+observation even when a later backfill updates current item metadata; publication
+time may still be learned later. Storage operations own transaction boundaries;
+there is no public `Storage.transaction()` escape hatch.
+
+Terminal headline groups are heuristic story clusters: matching canonical URLs
+or normalized titles plus item classification form transitive groups. Generic
+titles can link unrelated stories. These display clusters do not establish exact
+identity or affect persistent item identity.
 
 Tests can pass `backend=httpx.MockTransport(...)` to `HttpTransport`. Parallax
 still constructs and closes the HTTPX client with its configured policy; tests

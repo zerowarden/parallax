@@ -1,8 +1,7 @@
-"""SQLite connection, schema compatibility, transactions and collector ownership."""
+"""SQLite connection, schema compatibility, and transactions."""
 
 from __future__ import annotations
 
-import fcntl
 import logging
 import sqlite3
 from collections.abc import Generator
@@ -11,10 +10,6 @@ from pathlib import Path
 
 LOGGER = logging.getLogger(__name__)
 SCHEMA_VERSION = 1
-
-
-class CollectorAlreadyRunningError(RuntimeError):
-    """Another collection workflow already owns this archive."""
 
 
 def open_connection(
@@ -51,25 +46,6 @@ def open_connection(
 def close_connection(connection: sqlite3.Connection, database_path: Path) -> None:
     LOGGER.info("operation=database_close path=%s", database_path)
     connection.close()
-
-
-@contextmanager
-def collector_lock(database_path: Path) -> Generator[None, None, None]:
-    """One collector per archive; the OS releases ownership after a crash."""
-    path = database_path.resolve()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.with_name(path.name + ".collector.lock").open("a") as lock:
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as exc:
-            raise CollectorAlreadyRunningError(
-                f"Another collector owns {path}; stop it before starting "
-                "another collection command."
-            ) from exc
-        try:
-            yield
-        finally:
-            fcntl.flock(lock, fcntl.LOCK_UN)
 
 
 def initialize(connection: sqlite3.Connection) -> None:
@@ -123,6 +99,7 @@ def initialize(connection: sqlite3.Connection) -> None:
             );
 
             CREATE TABLE IF NOT EXISTS fetch_runs (
+                run_kind TEXT NOT NULL CHECK (run_kind IN ('live', 'history')),
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 source_id TEXT NOT NULL REFERENCES sources(source_id),
                 started_at TEXT NOT NULL,
@@ -217,6 +194,8 @@ def initialize(connection: sqlite3.Connection) -> None:
                 position INTEGER,
                 item_id INTEGER NOT NULL REFERENCES items(id),
                 item_version_id INTEGER NOT NULL REFERENCES item_versions(id),
+                original_url TEXT NOT NULL,
+                canonical_url TEXT NOT NULL,
                 metrics_json TEXT NOT NULL,
                 PRIMARY KEY(snapshot_id, item_id)
             );
@@ -270,6 +249,19 @@ def check_schema(connection: sqlite3.Connection, *, require_existing: bool) -> N
             "Unsupported schema version; preserve the old archive and "
             "recreate the database to continue."
         )
+    for table, required in (
+        ("fetch_runs", {"run_kind"}),
+        ("snapshot_entries", {"original_url", "canonical_url"}),
+    ):
+        columns = {
+            column["name"]
+            for column in connection.execute(f"PRAGMA table_info({table})")
+        }
+        if not required <= columns:
+            raise RuntimeError(
+                "Archive uses an older schema layout; preserve the old archive "
+                "and recreate the database to continue."
+            )
 
 
 @contextmanager

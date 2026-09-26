@@ -29,7 +29,7 @@ def _archive(tmp_path: Path) -> int:
     storage = Storage(tmp_path / "archive.db")
     storage.initialize()
     storage.sync_sources([make_source()])
-    run = storage.start_fetch_run("fixture")
+    run = storage.start_fetch_run("fixture", "live")
     storage.close()
     return run
 
@@ -136,7 +136,7 @@ def test_collector_process_rejects_manual_and_scheduled_collection(
     config = _config(tmp_path)
     _archive(tmp_path)
     with Runtime.build(config) as owner:
-        run = owner.storage.start_fetch_run("fixture")
+        run = owner.storage.start_fetch_run("fixture", "live")
         result = subprocess.run(
             [sys.executable, "-m", "parallax", *command, "--config", str(config)],
             capture_output=True,
@@ -172,7 +172,7 @@ from pathlib import Path
 from parallax.runtime import Runtime
 logging.disable(logging.CRITICAL)
 with Runtime.build(Path(sys.argv[1])) as runtime:
-    runtime.storage.start_fetch_run("fixture")
+    runtime.storage.start_fetch_run("fixture", "live")
     print("ready", flush=True)
     sys.stdin.readline()
 """
@@ -195,3 +195,55 @@ with Runtime.build(Path(sys.argv[1])) as runtime:
         recovered = successor.storage.recent_fetch_runs()[0]
         assert recovered.status == "failed"
         assert recovered.error_type == "AbandonedRun"
+
+
+@pytest.mark.parametrize("command", ["show", "status", "runs", "web"])
+@pytest.mark.parametrize(
+    "invalid",
+    [
+        "[http]\nmax_connections = -1\n",
+        "[scheduler]\nloop_sleep_seconds = -1\n",
+        "[ingestion]\nmax_concurrent_sources = -1\n",
+        "[validation]\nmax_title_length = -1\n",
+    ],
+)
+def test_archive_commands_ignore_collector_config(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    command: str,
+    invalid: str,
+) -> None:
+    from parallax.config import CatalogError, load_catalog
+
+    config = _config(tmp_path)
+    _archive(tmp_path)
+    config.write_text(config.read_text() + invalid)
+    served: list[int] = []
+
+    def serve(application: object, **kwargs: object) -> None:
+        from flask import Flask
+
+        assert isinstance(application, Flask)
+        served.append(application.test_client().get("/").status_code)
+
+    monkeypatch.setattr("flask.Flask.run", serve)
+    result = CliRunner().invoke(app, [command, "--config", str(config)])
+    assert result.exit_code == 0, result.output
+    if command == "web":
+        assert served == [200]
+    with pytest.raises(CatalogError):
+        load_catalog(config)
+
+
+def test_runtime_does_not_configure_global_logging(tmp_path: Path) -> None:
+    import logging
+
+    config = _config(tmp_path)
+    root = logging.getLogger()
+    handlers = root.handlers[:]
+    level = root.level
+    for _ in range(2):
+        with Runtime.build(config):
+            assert root.handlers == handlers
+            assert root.level == level
+    assert not (tmp_path / "archive.log").exists()

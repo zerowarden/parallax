@@ -118,70 +118,69 @@ class HttpTransport(AbstractContextManager["HttpTransport"]):
                 self._apply_conditional_headers(request.headers, state)
             try:
                 response, host_semaphore = self._send_once(request)
-            except _TRANSIENT_ERRORS as exc:
-                if not self._retry_transient(request, source, attempt, exc):
-                    raise
-                continue
-            try:
-                next_request = response.next_request
-                if self.config.follow_redirects and next_request is not None:
-                    if redirect_count >= MAX_REDIRECTS:
-                        raise httpx.TooManyRedirects(
-                            f"Exceeded {MAX_REDIRECTS} redirects",
-                            request=request,
+                try:
+                    next_request = response.next_request
+                    if self.config.follow_redirects and next_request is not None:
+                        if redirect_count >= MAX_REDIRECTS:
+                            raise httpx.TooManyRedirects(
+                                f"Exceeded {MAX_REDIRECTS} redirects",
+                                request=request,
+                            )
+                        _apply_cookie_policy(next_request, declared_cookie)
+                        if not self._is_safe_redirect(request, next_request, source):
+                            raise UnsafeRedirectError(
+                                "Refusing unsafe redirect: "
+                                f"{_safe_url(str(request.url))} -> "
+                                f"{_safe_url(str(next_request.url))}",
+                                request=request,
+                            )
+                        LOGGER.info(
+                            "operation=http_redirect source_id=%s "
+                            "from_url=%s to_url=%s",
+                            source.id,
+                            _safe_url(str(request.url)),
+                            _safe_url(str(next_request.url)),
                         )
-                    _apply_cookie_policy(next_request, declared_cookie)
-                    if not self._is_safe_redirect(request, next_request, source):
-                        raise UnsafeRedirectError(
-                            "Refusing unsafe redirect: "
-                            f"{_safe_url(str(request.url))} -> "
-                            f"{_safe_url(str(next_request.url))}",
-                            request=request,
-                        )
-                    LOGGER.info(
-                        "operation=http_redirect source_id=%s from_url=%s to_url=%s",
-                        source.id,
-                        _safe_url(str(request.url)),
-                        _safe_url(str(next_request.url)),
-                    )
-                    # Validators describe the previous target. Re-evaluate
-                    # ownership against the effective redirected request.
-                    next_request.headers.pop("if-none-match", None)
-                    next_request.headers.pop("if-modified-since", None)
-                    request = next_request
-                    redirect_count += 1
-                    attempt = 0
-                    continue
+                        # Validators describe the previous target. Re-evaluate
+                        # ownership against the effective redirected request.
+                        next_request.headers.pop("if-none-match", None)
+                        next_request.headers.pop("if-modified-since", None)
+                        request = next_request
+                        redirect_count += 1
+                        attempt = 0
+                        continue
 
-                try:
                     content = self._read_bounded(response)
-                except httpx.ReadTimeout as exc:
-                    if not self._retry_transient(request, source, attempt, exc):
-                        raise
-                    continue
-                observed_at = datetime.now(UTC)
-                final_url = str(response.url)
-                LOGGER.info(
-                    "operation=http_response source_id=%s status=%s bytes=%s url=%s",
-                    source.id,
-                    response.status_code,
-                    len(content),
-                    _safe_url(final_url),
-                )
-                return HttpResponse(
-                    status_code=response.status_code,
-                    url=final_url,
-                    headers=dict(response.headers),
-                    content=content,
-                    observed_at=observed_at,
-                    cookies=dict(response.cookies),
-                    request_identity=request_identity,
-                )
-            finally:
-                try:
-                    response.close()
+                    observed_at = datetime.now(UTC)
+                    final_url = str(response.url)
+                    LOGGER.info(
+                        "operation=http_response source_id=%s "
+                        "status=%s bytes=%s url=%s",
+                        source.id,
+                        response.status_code,
+                        len(content),
+                        _safe_url(final_url),
+                    )
+                    return HttpResponse(
+                        status_code=response.status_code,
+                        url=final_url,
+                        headers=dict(response.headers),
+                        content=content,
+                        observed_at=observed_at,
+                        cookies=dict(response.cookies),
+                        request_identity=request_identity,
+                    )
                 finally:
-                    host_semaphore.release()
+                    try:
+                        response.close()
+                    finally:
+                        host_semaphore.release()
+            except _TRANSIENT_ERRORS as exc:
+                delay = self._retry_delay(request, source, attempt, exc)
+                if delay is None:
+                    raise
+                # Response and host permit have been released before backoff.
+                time.sleep(delay)
 
     def close(self) -> None:
         LOGGER.info("operation=http_client_close")
@@ -238,15 +237,15 @@ class HttpTransport(AbstractContextManager["HttpTransport"]):
                 threading.Semaphore(self.config.max_connections_per_host),
             )
 
-    def _retry_transient(
+    def _retry_delay(
         self,
         request: httpx.Request,
         source: Source,
         attempt: int,
         error: httpx.TransportError,
-    ) -> bool:
+    ) -> float | None:
         if not self._can_retry(request, attempt):
-            return False
+            return None
         delay = self.config.retry_backoff_seconds
         LOGGER.warning(
             "operation=http_retry source_id=%s url=%s error_type=%s "
@@ -258,8 +257,7 @@ class HttpTransport(AbstractContextManager["HttpTransport"]):
             self.config.max_attempts,
             delay,
         )
-        time.sleep(delay)
-        return True
+        return delay
 
     def _can_retry(self, request: httpx.Request, attempt: int) -> bool:
         return (

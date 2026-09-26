@@ -89,9 +89,9 @@ class Runtime(_OwnedResources):
     def build(cls, config_path: Path) -> Runtime:
         from parallax.adapters.registry import AdapterRegistry
         from parallax.ingest import IngestionService
-        from parallax.logging_setup import configure_logging
         from parallax.scheduler import Scheduler
-        from parallax.storage import Storage, collector_lock
+        from parallax.storage import Storage
+        from parallax.storage.locking import collector_lock
         from parallax.transport import HttpTransport
         from parallax.validation import BatchValidator
 
@@ -99,7 +99,6 @@ class Runtime(_OwnedResources):
         adapters = AdapterRegistry()
         for source in config.sources:
             adapters.resolve_source(source)
-        configure_logging(config.app.log_level, config.app.log_path)
         with ExitStack() as resources:
             resources.enter_context(collector_lock(config.app.database_path))
             storage = Storage(config.app.database_path)

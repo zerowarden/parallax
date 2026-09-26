@@ -20,11 +20,17 @@ from parallax.domain import (
     HistoryOutcome,
     IngestionSummary,
     ObservedBatch,
+    RunKind,
     ValidatedBatch,
 )
-from parallax.normalization import normalize_title_for_version
+from parallax.normalization import canonicalize_url, normalize_title_for_version
 from parallax.storage import foundation, identity, queries
-from parallax.storage.encoding import encode_datetime, inserted_row_id, timestamp_now
+from parallax.storage.encoding import (
+    encode_datetime,
+    encode_metrics,
+    inserted_row_id,
+    timestamp_now,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -44,6 +50,7 @@ class _ResolvedObservation:
     candidate: HeadlineCandidate
     item_id: int
     version_id: int
+    metrics_json: str
 
 
 def recover_abandoned_runs(connection: sqlite3.Connection) -> None:
@@ -55,7 +62,8 @@ def recover_abandoned_runs(connection: sqlite3.Connection) -> None:
             UPDATE stream_state SET next_run_at = ?,
                 consecutive_failures = consecutive_failures + 1
             WHERE source_id IN (
-                SELECT source_id FROM fetch_runs WHERE status = 'running'
+                SELECT source_id FROM fetch_runs
+                WHERE status = 'running' AND run_kind = 'live'
             )
             """,
             (now,),
@@ -73,29 +81,33 @@ def recover_abandoned_runs(connection: sqlite3.Connection) -> None:
         LOGGER.warning("operation=fetch_runs_recovered count=%s", cursor.rowcount)
 
 
-def start_fetch_run(connection: sqlite3.Connection, source_id: str) -> int:
+def start_fetch_run(
+    connection: sqlite3.Connection, source_id: str, run_kind: RunKind
+) -> int:
     started_at = timestamp_now()
     with foundation.transaction(connection):
         cursor = connection.execute(
             """
-            INSERT INTO fetch_runs(source_id, started_at, status)
-            VALUES (?, ?, 'running')
+            INSERT INTO fetch_runs(source_id, run_kind, started_at, status)
+            VALUES (?, ?, ?, 'running')
             """,
-            (source_id, started_at),
+            (source_id, run_kind, started_at),
         )
-        connection.execute(
-            """
-            UPDATE stream_state
-            SET last_attempt_at = ?
-            WHERE source_id = ?
-            """,
-            (started_at, source_id),
-        )
+        if run_kind == "live":
+            connection.execute(
+                """
+                UPDATE stream_state
+                SET last_attempt_at = ?
+                WHERE source_id = ?
+                """,
+                (started_at, source_id),
+            )
     run_id = inserted_row_id(cursor)
     LOGGER.info(
-        "operation=fetch_run_start source_id=%s fetch_run_id=%s",
+        "operation=fetch_run_start source_id=%s fetch_run_id=%s run_kind=%s",
         source_id,
         run_id,
+        run_kind,
     )
     return run_id
 
@@ -115,6 +127,7 @@ def record_success(
     now = timestamp_now()
     observed = encode_datetime(observed_at)
     with foundation.transaction(connection):
+        _require_running_run(connection, source.id, fetch_run_id, "live")
         snapshot_cursor = connection.execute(
             """
             INSERT INTO snapshots(fetch_run_id, source_id, observed_at)
@@ -135,18 +148,17 @@ def record_success(
                 """
                 INSERT INTO snapshot_entries(
                     snapshot_id, position, item_id, item_version_id,
-                    metrics_json
-                ) VALUES (?, ?, ?, ?, ?)
+                    original_url, canonical_url, metrics_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     snapshot_id,
                     observation.candidate.position,
                     observation.item_id,
                     observation.version_id,
-                    json.dumps(
-                        observation.candidate.metrics,
-                        ensure_ascii=False,
-                    ),
+                    observation.candidate.url,
+                    canonicalize_url(observation.candidate.url),
+                    observation.metrics_json,
                 ),
             )
 
@@ -233,6 +245,7 @@ def record_history(
         else None
     )
     with foundation.transaction(connection):
+        _require_running_run(connection, source.id, fetch_run_id, "history")
         new_items, new_versions, resolved = _store_candidates(
             connection,
             source,
@@ -298,6 +311,7 @@ def record_not_modified(
 ) -> IngestionSummary:
     now = timestamp_now()
     with foundation.transaction(connection):
+        _require_running_run(connection, source_id, fetch_run_id, "live")
         state = queries.get_stream_state(connection, source_id)
         if state.request_identity != request_identity:
             raise ValueError("304 response does not match the stored request identity")
@@ -343,7 +357,7 @@ def record_failure(
     source_id: str,
     fetch_run_id: int,
     error: BaseException,
-    next_run_at: datetime,
+    next_run_at: datetime | None,
     http_status: int | None = None,
     error_message: str | None = None,
 ) -> None:
@@ -359,29 +373,52 @@ def record_failure(
                 http_status = ?,
                 error_type = ?,
                 error_message = ?
-            WHERE id = ? AND status = 'running'
+            WHERE id = ? AND source_id = ? AND status = 'running'
+            RETURNING run_kind
             """,
-            (now, http_status, error_type, message, fetch_run_id),
+            (now, http_status, error_type, message, fetch_run_id, source_id),
         )
-        if not cursor.rowcount:
+        run = cursor.fetchone()
+        cursor.close()
+        if run is None:
             return
-        connection.execute(
-            """
-            UPDATE stream_state SET
-                next_run_at = ?,
-                consecutive_failures = consecutive_failures + 1
-            WHERE source_id = ?
-            """,
-            (encode_datetime(next_run_at), source_id),
-        )
+        if run["run_kind"] == "live":
+            if next_run_at is None:
+                raise ValueError("live failure requires a retry time")
+            connection.execute(
+                """
+                UPDATE stream_state SET
+                    next_run_at = ?,
+                    consecutive_failures = consecutive_failures + 1
+                WHERE source_id = ?
+                """,
+                (encode_datetime(next_run_at), source_id),
+            )
     LOGGER.info(
         "operation=fetch_failure_recorded source_id=%s fetch_run_id=%s "
         "error_type=%s next_run_at=%s",
         source_id,
         fetch_run_id,
         error_type,
-        encode_datetime(next_run_at),
+        encode_datetime(next_run_at) if next_run_at is not None else None,
     )
+
+
+def _require_running_run(
+    connection: sqlite3.Connection,
+    source_id: str,
+    fetch_run_id: int,
+    run_kind: RunKind,
+) -> None:
+    run = connection.execute(
+        """
+        SELECT 1 FROM fetch_runs
+        WHERE id = ? AND source_id = ? AND run_kind = ? AND status = 'running'
+        """,
+        (fetch_run_id, source_id, run_kind),
+    ).fetchone()
+    if run is None:
+        raise ValueError(f"expected a running {run_kind} run for source {source_id}")
 
 
 def _record_stream_success(
@@ -436,6 +473,7 @@ def _store_candidates(
     resolved: dict[int, _ResolvedObservation] = {}
     for observation in batch.observations:
         candidate = observation.candidate
+        metrics_json = encode_metrics(candidate.metrics)
         seen_at = encode_datetime(observation.observed_at)
         item_id, item_is_new = identity.resolve_item(
             connection, source, candidate, seen_at
@@ -494,6 +532,7 @@ def _store_candidates(
             candidate=candidate,
             item_id=item_id,
             version_id=version_id,
+            metrics_json=metrics_json,
         )
     return new_items, new_versions, tuple(resolved.values())
 

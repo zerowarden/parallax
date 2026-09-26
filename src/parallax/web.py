@@ -140,13 +140,10 @@ def window_start(days: int, now: datetime) -> datetime:
     return (local_midnight - timedelta(days=days - 1)).astimezone(UTC)
 
 
-def format_relative(value: str, now: datetime) -> str:
+def format_relative(value: datetime, now: datetime) -> str:
     """Render a stored timestamp relative to the request time."""
-    moment = datetime.fromisoformat(value)
-    if moment.tzinfo is None:
-        moment = moment.replace(tzinfo=UTC)
     timezone = ZoneInfo(APPLICATION_TIMEZONE)
-    local_moment = moment.astimezone(timezone)
+    local_moment = value.astimezone(timezone)
     local_now = now.astimezone(timezone)
     elapsed_seconds = (local_now - local_moment).total_seconds()
     if elapsed_seconds < 60:

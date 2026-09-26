@@ -82,7 +82,7 @@ def _no_options(source: Source) -> None:
 @dataclass(frozen=True, slots=True)
 class AdapterRegistration:
     adapter: Adapter
-    validate: Callable[[Source], object] = _no_options
+    preflight: Callable[[Source], None] = _no_options
 
 
 class AdapterRegistry:
@@ -162,7 +162,7 @@ class AdapterRegistry:
         except KeyError as exc:
             available = ", ".join(self.names())
             raise KeyError(f"Unknown adapter {name!r}; available: {available}") from exc
-        registration.validate(source)
+        registration.preflight(source)
         return registration.adapter
 
     def names(self) -> tuple[str, ...]:

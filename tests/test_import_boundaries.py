@@ -13,7 +13,6 @@ import pytest
         ("parallax.adapters.base", []),
         ("parallax.adapters.results", []),
         ("parallax.archive", []),
-        ("parallax.read_models", []),
         ("parallax.diagnostic_models", []),
         ("parallax.feed", []),
         ("parallax.presentation", []),
@@ -60,5 +59,19 @@ assert not loaded, loaded
         capture_output=True,
         text=True,
         check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_archive_storage_import_works_without_posix_locking() -> None:
+    script = """
+import sys
+sys.modules['fcntl'] = None
+from parallax.storage import Storage
+from parallax.runtime import ArchiveRuntime
+assert 'parallax.storage.locking' not in sys.modules
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True
     )
     assert result.returncode == 0, result.stderr

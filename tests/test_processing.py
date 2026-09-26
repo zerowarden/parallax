@@ -48,7 +48,7 @@ def _record(
     source: Source,
     candidates: tuple[HeadlineCandidate, ...],
 ) -> None:
-    run_id = storage.start_fetch_run(source.id)
+    run_id = storage.start_fetch_run(source.id, "live")
     storage.record_success(
         source,
         run_id,
@@ -314,5 +314,50 @@ def test_analysis_input_preserves_item_classification(
             entity_kind,
             item_variant,
         )
+    finally:
+        storage.close()
+
+
+def test_checkpoint_cannot_regress_between_stale_consumers(tmp_path: Path) -> None:
+    first = Storage(tmp_path / "archive.db")
+    first.initialize()
+    second = Storage(tmp_path / "archive.db")
+    try:
+        a = ChangeLogReader(first, CONSUMER)
+        b = AnalysisInputReader(second, CONSUMER)
+        a.checkpoint(100)
+        b.checkpoint(80)
+        assert first.get_consumer_checkpoint(CONSUMER) == 100
+        assert second.get_consumer_checkpoint(CONSUMER) == 100
+        b.checkpoint(101)
+        a.checkpoint(100)
+        assert first.get_consumer_checkpoint(CONSUMER) == 101
+        with pytest.raises(ValueError, match="negative"):
+            a.checkpoint(-1)
+    finally:
+        second.close()
+        first.close()
+
+
+def test_analysis_query_uses_database_event_and_one_projection_query(
+    tmp_path: Path,
+) -> None:
+    from dataclasses import replace
+
+    storage = Storage(tmp_path / "archive.db")
+    storage.initialize()
+    source = _source()
+    storage.sync_sources([source])
+    _record(storage, source, (_candidate("1", "Headline"),))
+    try:
+        event = storage.changes_after(0)[0]
+        fabricated = replace(event, event_type="fabricated")
+        queries: list[str] = []
+        storage._connection.set_trace_callback(queries.append)
+        items = storage.analysis_items_after(fabricated.seq - 1, limit=1)
+        assert len(queries) == 1
+        assert items[0].event_type == event.event_type
+        assert items[0].event_type != fabricated.event_type
+        assert not hasattr(storage, "hydrate_analysis_items")
     finally:
         storage.close()

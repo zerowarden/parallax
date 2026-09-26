@@ -25,4 +25,4 @@ class ChangeLogReader:
         yield from self._storage.changes_after(checkpoint, limit=limit)
 
     def checkpoint(self, seq: int) -> None:
-        self._storage.set_consumer_checkpoint(self._consumer_name, seq)
+        self._storage.advance_consumer_checkpoint(self._consumer_name, seq)

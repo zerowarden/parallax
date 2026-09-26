@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Generator, Sequence
-from contextlib import contextmanager
+from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
 
+from parallax.archive import FetchRunRow, HeadlineRow
 from parallax.config import Source
 from parallax.domain import (
     AnalysisItem,
@@ -15,16 +15,12 @@ from parallax.domain import (
     HistoryOutcome,
     IngestionSummary,
     ObservedBatch,
+    RunKind,
     StreamState,
     ValidatedBatch,
 )
-from parallax.read_models import FetchRunRow, HeadlineRow
 from parallax.storage import catalog, changes, foundation, queries, writer
 from parallax.storage.foundation import SCHEMA_VERSION as SCHEMA_VERSION
-from parallax.storage.foundation import (
-    CollectorAlreadyRunningError as CollectorAlreadyRunningError,
-)
-from parallax.storage.foundation import collector_lock as collector_lock
 
 
 class Storage:
@@ -62,8 +58,8 @@ class Storage:
     def last_content_change_at(self, source_id: str) -> datetime | None:
         return queries.last_content_change_at(self._connection, source_id)
 
-    def start_fetch_run(self, source_id: str) -> int:
-        return writer.start_fetch_run(self._connection, source_id)
+    def start_fetch_run(self, source_id: str, run_kind: RunKind) -> int:
+        return writer.start_fetch_run(self._connection, source_id, run_kind)
 
     def record_success(
         self,
@@ -125,7 +121,7 @@ class Storage:
         source_id: str,
         fetch_run_id: int,
         error: BaseException,
-        next_run_at: datetime,
+        next_run_at: datetime | None,
         http_status: int | None = None,
         error_message: str | None = None,
     ) -> None:
@@ -205,18 +201,12 @@ class Storage:
     def get_consumer_checkpoint(self, consumer_name: str) -> int:
         return changes.get_consumer_checkpoint(self._connection, consumer_name)
 
-    def set_consumer_checkpoint(self, consumer_name: str, last_seq: int) -> None:
-        return changes.set_consumer_checkpoint(
+    def advance_consumer_checkpoint(self, consumer_name: str, last_seq: int) -> None:
+        return changes.advance_consumer_checkpoint(
             self._connection, consumer_name, last_seq
         )
 
-    def hydrate_analysis_items(
-        self,
-        events: Sequence[ChangeEvent],
+    def analysis_items_after(
+        self, checkpoint: int, limit: int = 100
     ) -> list[AnalysisItem]:
-        return changes.hydrate_analysis_items(self._connection, events)
-
-    @contextmanager
-    def transaction(self) -> Generator[None, None, None]:
-        with foundation.transaction(self._connection):
-            yield
+        return changes.analysis_items_after(self._connection, checkpoint, limit)

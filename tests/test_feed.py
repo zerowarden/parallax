@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from datetime import datetime
 
 from parallax.archive import HeadlineRow
 from parallax.domain import EntityKind, ItemKind, ItemVariant
@@ -38,8 +39,8 @@ def _row(
         title=title,
         url=url,
         canonical_url=canonical_url if canonical_url is not None else url,
-        published_at=published_at,
-        first_seen_at=first_seen_at,
+        published_at=datetime.fromisoformat(published_at) if published_at else None,
+        first_seen_at=datetime.fromisoformat(first_seen_at),
     )
 
 
@@ -365,3 +366,25 @@ def test_groups_increment_duplicate_count_per_extra_observation() -> None:
 def test_groups_return_empty_tuple_for_no_rows() -> None:
     assert _groups([]) == ()
     assert build_headline_feed(()) == ()
+
+
+def test_feed_orders_instants_across_timezone_offsets() -> None:
+    rows = [
+        _row(
+            "Earlier",
+            "Earlier",
+            "https://example.test/early",
+            first_seen_at="2026-09-17T12:00:00+08:00",
+            published_at="2026-09-17T12:00:00+08:00",
+        ),
+        _row(
+            "Later",
+            "Later",
+            "https://example.test/late",
+            first_seen_at="2026-09-17T05:00:00+00:00",
+            published_at="2026-09-17T05:00:00+00:00",
+        ),
+    ]
+    for order in ("observed", "published"):
+        groups = build_headline_groups(rows, order=order)
+        assert [group.representative.title for group in groups] == ["Later", "Earlier"]

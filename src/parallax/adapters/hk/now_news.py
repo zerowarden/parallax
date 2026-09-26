@@ -29,7 +29,11 @@ PLAYER_URL_TEMPLATE = "https://news.now.com/home/local/player?newsId={news_id}"
 AD_STORY_PREFIX = "NM-JOBAD"
 
 
-def validate_options(source: Source) -> dict[str, int]:
+def validate_options(source: Source) -> None:
+    resolve_history_options(source)
+
+
+def resolve_history_options(source: Source) -> dict[str, int]:
     return positive_integer_options(
         source,
         {
@@ -64,7 +68,7 @@ class NowNewsAdapter:
         source: Source,
         since: datetime,
     ) -> HistoryPlan:
-        options = validate_options(source)
+        options = resolve_history_options(source)
         return HistoryPlan(
             requests=tuple(
                 _page_request(source, page=page, size=options["history_page_size"])

@@ -9,7 +9,7 @@ import pytest
 
 from parallax.config import Source
 from parallax.domain import BrowseView, HeadlineCandidate, ObservedBatch, ValidatedBatch
-from parallax.storage import SCHEMA_VERSION, Storage
+from parallax.storage import SCHEMA_VERSION, Storage, foundation
 from source_factory import make_source
 
 OBSERVED_AT = datetime(2026, 9, 18, 12, 0, tzinfo=UTC)
@@ -95,7 +95,7 @@ def test_storage_preserves_versions_and_is_idempotent(tmp_path: Path):
         ),
         rejected_count=0,
     )
-    run_one = storage.start_fetch_run(source.id)
+    run_one = storage.start_fetch_run(source.id, "live")
     summary_one = storage.record_success(
         source,
         run_one,
@@ -107,7 +107,7 @@ def test_storage_preserves_versions_and_is_idempotent(tmp_path: Path):
         OBSERVED_AT,
     )
 
-    run_two = storage.start_fetch_run(source.id)
+    run_two = storage.start_fetch_run(source.id, "live")
     summary_two = storage.record_success(
         source,
         run_two,
@@ -130,7 +130,7 @@ def test_storage_preserves_versions_and_is_idempotent(tmp_path: Path):
         ),
         rejected_count=0,
     )
-    run_three = storage.start_fetch_run(source.id)
+    run_three = storage.start_fetch_run(source.id, "live")
     summary_three = storage.record_success(
         source,
         run_three,
@@ -175,7 +175,7 @@ def test_latest_snapshot_headlines_are_unbounded_by_default(tmp_path: Path):
         )
         for index in range(1, 26)
     )
-    run_id = storage.start_fetch_run(source.id)
+    run_id = storage.start_fetch_run(source.id, "live")
     storage.record_success(
         source,
         run_id,
@@ -208,7 +208,7 @@ def test_latest_snapshot_headlines_keep_position_order_and_classification(
         )
         for position in (2, 1, 3)
     )
-    run_id = storage.start_fetch_run(source.id)
+    run_id = storage.start_fetch_run(source.id, "live")
     storage.record_success(
         source,
         run_id,
@@ -254,8 +254,8 @@ def test_out_of_order_observations_preserve_temporal_bounds_and_latest_snapshot(
             rejected_count=0,
         )
 
-    older_run = storage.start_fetch_run(source.id)
-    newer_run = storage.start_fetch_run(source.id)
+    older_run = storage.start_fetch_run(source.id, "live")
+    newer_run = storage.start_fetch_run(source.id, "live")
     storage.record_success(
         source,
         newer_run,
@@ -315,7 +315,7 @@ def test_latest_fetch_runs_returns_one_run_per_source(tmp_path: Path):
         rejected_count=0,
     )
     for _ in range(3):
-        run_id = storage.start_fetch_run(source.id)
+        run_id = storage.start_fetch_run(source.id, "live")
         storage.record_success(
             source,
             run_id,
@@ -352,7 +352,7 @@ def test_later_publication_time_fills_existing_unknown_value(tmp_path: Path):
         ),
         rejected_count=0,
     )
-    run_one = storage.start_fetch_run(source.id)
+    run_one = storage.start_fetch_run(source.id, "live")
     storage.record_success(
         source,
         run_one,
@@ -378,7 +378,7 @@ def test_later_publication_time_fills_existing_unknown_value(tmp_path: Path):
         ),
         rejected_count=0,
     )
-    run_two = storage.start_fetch_run(source.id)
+    run_two = storage.start_fetch_run(source.id, "live")
     storage.record_success(
         source,
         run_two,
@@ -392,7 +392,7 @@ def test_later_publication_time_fills_existing_unknown_value(tmp_path: Path):
 
     rows = storage.latest_snapshot_headlines()
     assert len(rows) == 1
-    assert rows[0].published_at == published.isoformat(timespec="microseconds")
+    assert rows[0].published_at == published
     storage.close()
 
 
@@ -415,7 +415,7 @@ def test_record_history_stores_items_without_snapshot_or_schedule(
         rejected_count=0,
     )
 
-    run_id = storage.start_fetch_run(source.id)
+    run_id = storage.start_fetch_run(source.id, "history")
     summary = storage.record_history(
         source, run_id, ObservedBatch.from_validated(batch, OBSERVED_AT)
     )
@@ -450,7 +450,7 @@ def test_sync_sources_disables_sources_removed_from_config(tmp_path: Path):
         ),
         rejected_count=0,
     )
-    run_id = storage.start_fetch_run(removed.id)
+    run_id = storage.start_fetch_run(removed.id, "live")
     storage.record_success(
         removed,
         run_id,
@@ -488,7 +488,7 @@ def test_latest_snapshot_headlines_only_returns_enabled_sources(tmp_path: Path):
     )
     storage.sync_sources([enabled, disabled])
     for source in (enabled, disabled):
-        run_id = storage.start_fetch_run(source.id)
+        run_id = storage.start_fetch_run(source.id, "live")
         storage.record_success(
             source,
             run_id,
@@ -530,7 +530,7 @@ def test_tracking_query_variants_share_canonical_url_not_item_identity(
     source = _source()
     storage.sync_sources([source])
 
-    run_id = storage.start_fetch_run(source.id)
+    run_id = storage.start_fetch_run(source.id, "live")
     storage.record_success(
         source,
         run_id,
@@ -569,7 +569,7 @@ def test_formatting_only_title_change_reuses_version(tmp_path: Path) -> None:
     source = _source()
     storage.sync_sources([source])
 
-    run_one = storage.start_fetch_run(source.id)
+    run_one = storage.start_fetch_run(source.id, "live")
     storage.record_success(
         source,
         run_one,
@@ -591,7 +591,7 @@ def test_formatting_only_title_change_reuses_version(tmp_path: Path) -> None:
         OBSERVED_AT,
     )
 
-    run_two = storage.start_fetch_run(source.id)
+    run_two = storage.start_fetch_run(source.id, "live")
     summary = storage.record_success(
         source,
         run_two,
@@ -629,7 +629,7 @@ def test_success_commit_uses_observation_time_for_seen_fields(tmp_path: Path) ->
     storage.sync_sources([source])
     observed_at = datetime(2026, 9, 17, 3, 4, 5, tzinfo=UTC)
 
-    run_id = storage.start_fetch_run(source.id)
+    run_id = storage.start_fetch_run(source.id, "live")
     storage.record_success(
         source,
         run_id,
@@ -660,10 +660,10 @@ def test_success_commit_uses_observation_time_for_seen_fields(tmp_path: Path) ->
             "SELECT observed_at FROM snapshots ORDER BY id DESC LIMIT 1"
         ).fetchone()
 
-    assert rows[0].first_seen_at == observed_at.isoformat(timespec="microseconds")
+    assert rows[0].first_seen_at == observed_at
     assert snapshot_observed_at == (observed_at.isoformat(timespec="microseconds"),)
     assert runs[0].finished_at is not None
-    assert datetime.fromisoformat(runs[0].finished_at) > observed_at
+    assert runs[0].finished_at > observed_at
 
 
 def test_failed_commit_rolls_back_and_preserves_prior_snapshot(tmp_path: Path) -> None:
@@ -672,7 +672,7 @@ def test_failed_commit_rolls_back_and_preserves_prior_snapshot(tmp_path: Path) -
     source = _source()
     storage.sync_sources([source])
 
-    run_one = storage.start_fetch_run(source.id)
+    run_one = storage.start_fetch_run(source.id, "live")
     storage.record_success(
         source,
         run_one,
@@ -694,10 +694,10 @@ def test_failed_commit_rolls_back_and_preserves_prior_snapshot(tmp_path: Path) -
         OBSERVED_AT,
     )
 
-    failing_run = storage.start_fetch_run(source.id)
+    failing_run = storage.start_fetch_run(source.id, "live")
     # Deliberately violate the typed metrics contract to inject a storage failure.
     unserializable: Any = object()
-    with pytest.raises(TypeError):
+    with pytest.raises(ValueError, match="candidate metrics"):
         storage.record_success(
             source,
             failing_run,
@@ -737,7 +737,7 @@ def test_transaction_rolls_back_when_interrupted(tmp_path: Path) -> None:
     storage = Storage(tmp_path / "parallax.db")
     storage.initialize()
 
-    with pytest.raises(KeyboardInterrupt), storage.transaction():
+    with pytest.raises(KeyboardInterrupt), foundation.transaction(storage._connection):
         storage._connection.execute("""
             INSERT INTO consumer_checkpoints(consumer_name, last_seq, updated_at)
             VALUES ('interrupted', 1, '2026-01-01T00:00:00+00:00')
@@ -746,7 +746,7 @@ def test_transaction_rolls_back_when_interrupted(tmp_path: Path) -> None:
 
     assert not storage._connection.in_transaction
     assert storage.get_consumer_checkpoint("interrupted") == 0
-    storage.set_consumer_checkpoint("after-interrupt", 1)
+    storage.advance_consumer_checkpoint("after-interrupt", 1)
     assert storage.get_consumer_checkpoint("after-interrupt") == 1
     storage.close()
 
@@ -763,7 +763,7 @@ def test_late_ingestion_failure_rolls_back_every_persisted_effect(
     source = _source()
     storage.sync_sources([source])
     original = HeadlineCandidate(title="Original", url="https://example.com/1")
-    first_run = storage.start_fetch_run(source.id)
+    first_run = storage.start_fetch_run(source.id, "live")
     storage.record_success(
         source,
         first_run,
@@ -775,7 +775,9 @@ def test_late_ingestion_failure_rolls_back_every_persisted_effect(
         OBSERVED_AT,
         "original-request",
     )
-    run = storage.start_fetch_run(source.id)
+    run = storage.start_fetch_run(
+        source.id, "history" if operation == "history" else "live"
+    )
     # Fail after items, aliases, observations, versions, events and (for refresh)
     # snapshot entries have been written. Even the run update must roll back.
     failure_condition = (
@@ -869,7 +871,7 @@ def test_transaction_rolls_back_when_commit_fails(tmp_path: Path) -> None:
     storage._connection = connection  # type: ignore[assignment]
 
     expected = pytest.raises(sqlite3.OperationalError, match="disk I/O error")
-    with expected, storage.transaction():
+    with expected, foundation.transaction(storage._connection):
         pass
 
     assert connection.statements == ["BEGIN IMMEDIATE", "COMMIT", "ROLLBACK"]
@@ -884,7 +886,7 @@ def test_transaction_discards_writes_when_deferred_commit_fails(
     storage.initialize()
 
     expected = pytest.raises(sqlite3.IntegrityError, match="FOREIGN KEY")
-    with expected, storage.transaction():
+    with expected, foundation.transaction(storage._connection):
         storage._connection.execute("PRAGMA defer_foreign_keys = ON")
         storage._connection.execute("""
             INSERT INTO change_log(event_type, source_id, item_id, created_at)
@@ -904,7 +906,7 @@ def test_canonical_items_collapse_across_provider_channels(tmp_path: Path) -> No
     storage.sync_sources([local, international])
 
     def observe(source: Source, observed_at: datetime) -> None:
-        run_id = storage.start_fetch_run(source.id)
+        run_id = storage.start_fetch_run(source.id, "live")
         storage.record_success(
             source,
             run_id,
@@ -961,7 +963,7 @@ def test_item_identity_is_stable_when_external_id_appears_or_disappears(
     storage.sync_sources([source])
 
     for index, external_id in enumerate(external_ids):
-        run_id = storage.start_fetch_run(source.id)
+        run_id = storage.start_fetch_run(source.id, "live")
         storage.record_success(
             source,
             run_id,
@@ -1003,7 +1005,7 @@ def test_distinct_external_ids_with_same_url_remain_distinct(tmp_path: Path) -> 
     storage.sync_sources([source])
 
     for index, external_id in enumerate(("story-1", "story-2")):
-        run_id = storage.start_fetch_run(source.id)
+        run_id = storage.start_fetch_run(source.id, "live")
         storage.record_success(
             source,
             run_id,
@@ -1044,7 +1046,7 @@ def test_identity_and_alias_candidates_collapse_into_one_snapshot_entry(
     source = _source()
     storage.sync_sources([source])
 
-    first_run = storage.start_fetch_run(source.id)
+    first_run = storage.start_fetch_run(source.id, "live")
     storage.record_success(
         source,
         first_run,
@@ -1066,7 +1068,7 @@ def test_identity_and_alias_candidates_collapse_into_one_snapshot_entry(
         OBSERVED_AT,
     )
 
-    second_run = storage.start_fetch_run(source.id)
+    second_run = storage.start_fetch_run(source.id, "live")
     summary = storage.record_success(
         source,
         second_run,
@@ -1132,7 +1134,7 @@ def test_two_recorded_aliases_collapse_into_one_snapshot_entry(
     storage.sync_sources([source])
 
     for index, url in enumerate(("https://example.com/old", "https://example.com/new")):
-        run_id = storage.start_fetch_run(source.id)
+        run_id = storage.start_fetch_run(source.id, "live")
         storage.record_success(
             source,
             run_id,
@@ -1154,7 +1156,7 @@ def test_two_recorded_aliases_collapse_into_one_snapshot_entry(
             OBSERVED_AT + timedelta(minutes=index),
         )
 
-    run_id = storage.start_fetch_run(source.id)
+    run_id = storage.start_fetch_run(source.id, "live")
     summary = storage.record_success(
         source,
         run_id,
@@ -1210,7 +1212,7 @@ def test_browse_views_use_explicit_surfaces(tmp_path: Path) -> None:
         (news, OBSERVED_AT),
         (discover, OBSERVED_AT + timedelta(minutes=5)),
     ):
-        run_id = storage.start_fetch_run(source.id)
+        run_id = storage.start_fetch_run(source.id, "live")
         storage.record_success(
             source,
             run_id,
@@ -1258,7 +1260,7 @@ def test_browse_membership_is_per_observation(tmp_path: Path) -> None:
     storage.sync_sources([news, discover])
 
     def observe(source: Source, url: str, observed_at: datetime) -> None:
-        run_id = storage.start_fetch_run(source.id)
+        run_id = storage.start_fetch_run(source.id, "live")
         storage.record_success(
             source,
             run_id,
@@ -1316,7 +1318,7 @@ def test_current_title_tracks_a_b_a_within_one_second(tmp_path: Path) -> None:
         observed = OBSERVED_AT + timedelta(microseconds=micros)
         storage.record_success(
             source,
-            storage.start_fetch_run(source.id),
+            storage.start_fetch_run(source.id, "live"),
             200,
             ValidatedBatch(
                 (HeadlineCandidate(title, "https://example.com/1", "one"),), 0
@@ -1352,7 +1354,7 @@ def test_sync_empty_catalog_disables_all_without_deleting_history(
     storage.initialize()
     source = _source()
     storage.sync_sources([source])
-    run = storage.start_fetch_run(source.id)
+    run = storage.start_fetch_run(source.id, "live")
     storage.record_success(
         source,
         run,
@@ -1381,7 +1383,7 @@ def test_full_response_replaces_validators_while_304_preserves_omissions(
     batch = ValidatedBatch((HeadlineCandidate("A", "https://example.com/1"),), 0)
     storage.record_success(
         source,
-        storage.start_fetch_run(source.id),
+        storage.start_fetch_run(source.id, "live"),
         200,
         batch,
         '"one"',
@@ -1392,7 +1394,7 @@ def test_full_response_replaces_validators_while_304_preserves_omissions(
     )
     storage.record_not_modified(
         source.id,
-        storage.start_fetch_run(source.id),
+        storage.start_fetch_run(source.id, "live"),
         '"two"',
         None,
         OBSERVED_AT,
@@ -1406,7 +1408,7 @@ def test_full_response_replaces_validators_while_304_preserves_omissions(
     )
     storage.record_success(
         source,
-        storage.start_fetch_run(source.id),
+        storage.start_fetch_run(source.id, "live"),
         200,
         batch,
         None,
@@ -1417,7 +1419,7 @@ def test_full_response_replaces_validators_while_304_preserves_omissions(
     )
     state = storage.get_stream_state(source.id)
     assert (state.etag, state.last_modified) == (None, None)
-    run = storage.start_fetch_run(source.id)
+    run = storage.start_fetch_run(source.id, "live")
     state = storage.get_stream_state(source.id)
     with pytest.raises(ValueError, match="request identity"):
         storage.record_not_modified(
@@ -1440,7 +1442,7 @@ def test_rollback_failure_does_not_replace_original_error(tmp_path: Path) -> Non
     storage._connection = BrokenRollback()  # type: ignore[assignment]
     with (
         pytest.raises(sqlite3.OperationalError, match="disk I/O error"),
-        storage.transaction(),
+        foundation.transaction(storage._connection),
     ):
         pass
     storage.close()
@@ -1465,7 +1467,7 @@ def test_browse_count_and_rows_share_source_eligibility(
     for source in sources:
         storage.record_success(
             source,
-            storage.start_fetch_run(source.id),
+            storage.start_fetch_run(source.id, "live"),
             200,
             ValidatedBatch(
                 (
@@ -1505,3 +1507,202 @@ def test_browse_count_and_rows_share_source_eligibility(
     assert count == len(rows) == expected
     assert {row.source_id for row in rows} <= eligible
     storage.close()
+
+
+@pytest.mark.parametrize("run_kind", ["live", "history"])
+def test_abandoned_recovery_only_updates_live_state(
+    tmp_path: Path, run_kind: str
+) -> None:
+    storage = Storage(tmp_path / "archive.db")
+    storage.initialize()
+    source = _source()
+    storage.sync_sources([source])
+    try:
+        kind = "history" if run_kind == "history" else "live"
+        storage.start_fetch_run(source.id, kind)
+        before = storage.get_stream_state(source.id)
+        storage.recover_abandoned_runs()
+        after = storage.get_stream_state(source.id)
+        run = storage.recent_fetch_runs()[0]
+        assert run.run_kind == kind
+        assert run.status == "failed"
+        assert run.error_type == "AbandonedRun"
+        assert run.finished_at is not None and run.finished_at.tzinfo is UTC
+        assert run.started_at.tzinfo is UTC
+        if kind == "history":
+            assert after == before
+        else:
+            assert after.consecutive_failures == before.consecutive_failures + 1
+            assert after.next_run_at is not None
+        storage.recover_abandoned_runs()
+        assert storage.get_stream_state(source.id) == after
+    finally:
+        storage.close()
+
+
+def test_history_url_updates_cannot_rewrite_live_snapshot(tmp_path: Path) -> None:
+    storage = Storage(tmp_path / "archive.db")
+    storage.initialize()
+    source = _source()
+    storage.sync_sources([source])
+    live = HeadlineCandidate(
+        "Live title",
+        "https://example.com/live?utm_source=feed",
+        external_id="story",
+        position=1,
+        metrics={"score": 42},
+    )
+    try:
+        storage.record_success(
+            source,
+            storage.start_fetch_run(source.id, "live"),
+            200,
+            ValidatedBatch((live,), 0),
+            "etag",
+            "modified",
+            OBSERVED_AT,
+            OBSERVED_AT,
+            "request",
+        )
+        before = storage.latest_snapshot_headlines()
+        state = storage.get_stream_state(source.id)
+        snapshot = storage._connection.execute(
+            "SELECT * FROM snapshot_entries"
+        ).fetchall()
+        history = HeadlineCandidate(
+            "History title",
+            "https://example.com/history",
+            external_id="story",
+            position=9,
+            metrics={"score": 1},
+        )
+        for _ in range(2):
+            storage.record_history(
+                source,
+                storage.start_fetch_run(source.id, "history"),
+                ObservedBatch.from_validated(
+                    ValidatedBatch((history,), 0), OBSERVED_AT + timedelta(hours=1)
+                ),
+            )
+        assert storage.latest_snapshot_headlines() == before
+        assert before[0].url == live.url
+        assert before[0].canonical_url == "https://example.com/live"
+        assert storage.get_stream_state(source.id) == state
+        assert (
+            storage._connection.execute("SELECT * FROM snapshot_entries").fetchall()
+            == snapshot
+        )
+        current = storage.browse_headlines(
+            view="all",
+            since=OBSERVED_AT,
+            until=OBSERVED_AT + timedelta(days=1),
+            limit=10,
+            offset=0,
+        )
+        assert len(current) == 1
+        assert current[0].item_id == before[0].item_id
+        assert current[0].url == history.url
+        assert current[0].title == history.title
+        assert [run.new_version_count for run in storage.recent_fetch_runs()] == [
+            0,
+            1,
+            1,
+        ]
+    finally:
+        storage.close()
+
+
+@pytest.mark.parametrize("run_kind", ["live", "history"])
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf"), object()])
+def test_non_json_metrics_roll_back_whole_batch(
+    tmp_path: Path,
+    run_kind: str,
+    bad: Any,
+) -> None:
+    storage = Storage(tmp_path / "archive.db")
+    storage.initialize()
+    source = _source()
+    storage.sync_sources([source])
+    kind = "history" if run_kind == "history" else "live"
+    run = storage.start_fetch_run(source.id, kind)
+    before = storage.get_stream_state(source.id)
+    batch = ValidatedBatch(
+        (
+            HeadlineCandidate(
+                "Valid", "https://example.com/valid", metrics={"value": 1}
+            ),
+            HeadlineCandidate(
+                "Invalid", "https://example.com/invalid", metrics={"nested": [bad]}
+            ),
+        ),
+        0,
+    )
+    try:
+        with pytest.raises(ValueError, match="candidate metrics.*finite JSON"):
+            if kind == "history":
+                storage.record_history(
+                    source, run, ObservedBatch.from_validated(batch, OBSERVED_AT)
+                )
+            else:
+                storage.record_success(
+                    source, run, 200, batch, None, None, OBSERVED_AT, OBSERVED_AT
+                )
+        assert storage.get_stream_state(source.id) == before
+        assert storage.changes_after(0) == []
+        assert storage.latest_snapshot_headlines() == []
+        assert storage.recent_fetch_runs()[0].status == "running"
+        for table in (
+            "items",
+            "item_versions",
+            "observations",
+            "snapshots",
+            "item_url_identities",
+        ):
+            assert (
+                storage._connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[
+                    0
+                ]
+                == 0
+            )
+    finally:
+        storage.close()
+
+
+def test_old_layout_fails_with_recreation_guidance(tmp_path: Path) -> None:
+    database = tmp_path / "old.db"
+    with sqlite3.connect(database) as connection:
+        connection.executescript(
+            "CREATE TABLE schema_meta(version INTEGER); "
+            "INSERT INTO schema_meta VALUES (1);"
+        )
+    for read_only in (False, True):
+        with pytest.raises(RuntimeError, match="older schema layout.*recreate"):
+            Storage(database, read_only=read_only)
+
+
+def test_history_run_cannot_commit_a_live_snapshot(tmp_path: Path) -> None:
+    storage = Storage(tmp_path / "archive.db")
+    storage.initialize()
+    source = _source()
+    storage.sync_sources([source])
+    before = storage.get_stream_state(source.id)
+    try:
+        run = storage.start_fetch_run(source.id, "history")
+        with pytest.raises(ValueError, match="running live run"):
+            storage.record_success(
+                source,
+                run,
+                200,
+                ValidatedBatch(
+                    (HeadlineCandidate("Title", "https://example.com/1"),), 0
+                ),
+                None,
+                None,
+                OBSERVED_AT,
+                OBSERVED_AT,
+            )
+        assert storage.get_stream_state(source.id) == before
+        assert storage.latest_snapshot_headlines() == []
+        assert storage.recent_fetch_runs()[0].status == "running"
+    finally:
+        storage.close()

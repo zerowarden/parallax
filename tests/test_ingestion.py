@@ -24,11 +24,12 @@ from parallax.domain import (
     HttpResponse,
     ParsedBatch,
     RequestSpec,
+    RunKind,
     StreamState,
     ValidatedBatch,
 )
 from parallax.ingest import IngestionService
-from parallax.storage import Storage
+from parallax.storage import Storage, foundation
 from parallax.validation import BatchValidator
 from source_factory import make_source
 
@@ -312,7 +313,7 @@ def test_batch_rolls_back_interrupted_transaction_before_cleanup(
     service, storage = _batch_service(tmp_path, sources, BatchTransport())
 
     def interrupted(*args: object, **kwargs: object) -> None:
-        with storage.transaction():
+        with foundation.transaction(storage._connection):
             storage._connection.execute("""
                 INSERT INTO consumer_checkpoints(consumer_name, last_seq, updated_at)
                 VALUES ('interrupted', 1, '2026-01-01T00:00:00+00:00')
@@ -408,12 +409,12 @@ def test_batch_finalizes_started_runs_when_submission_fails(
     original_start = storage.start_fetch_run
     submissions = 0
 
-    def failing_start(source_id: str) -> int:
+    def failing_start(source_id: str, run_kind: RunKind) -> int:
         nonlocal submissions
         submissions += 1
         if submissions == 2:
             raise sqlite3.OperationalError("database is locked")
-        return original_start(source_id)
+        return original_start(source_id, run_kind)
 
     storage.start_fetch_run = failing_start  # type: ignore[method-assign]
 
@@ -438,7 +439,7 @@ def test_batch_records_commit_failure_without_relabelling(
     service, storage = _batch_service(tmp_path, sources, BatchTransport())
 
     def failing_commit(*args: object, **kwargs: object) -> None:
-        with storage.transaction():
+        with foundation.transaction(storage._connection):
             storage._connection.execute("DELETE FROM source_surfaces")
             raise failure("database failure")
 
@@ -677,9 +678,7 @@ def test_stepped_fetch_drives_sequence_offline(tmp_path: Path):
     assert summary.item_count == 1
     assert len(rows) == 1
     assert rows[0].title == "Stepped headline"
-    assert rows[0].first_seen_at == (OBSERVED_AT + timedelta(minutes=1)).isoformat(
-        timespec="microseconds"
-    )
+    assert rows[0].first_seen_at == (OBSERVED_AT + timedelta(minutes=1))
     assert state.etag is None
 
 
@@ -1032,3 +1031,62 @@ def test_effective_request_identity_is_persisted_across_catalog_changes(
         assert state.request_identity != original_state.request_identity
         assert "if-none-match" not in requested[-1].headers
     storage.close()
+
+
+@pytest.mark.parametrize("batch", [False, True])
+def test_failed_history_leaves_all_live_state_untouched(
+    tmp_path: Path, batch: bool
+) -> None:
+    source = make_source(adapter="history", url="https://example.com/current")
+    storage = Storage(tmp_path / "archive.db")
+    storage.initialize()
+    storage.sync_sources([source])
+    service = IngestionService(
+        storage,
+        FakeTransport(b"{}"),
+        FixedAdapterResolver({"history": HistoryFixtureAdapter()}),
+        BatchValidator(ValidationConfig()),
+        IngestionConfig(),
+    )
+    try:
+        service.fetch_source(source)
+        # Preserve a nontrivial retry state as well as successful validators.
+        run = storage.start_fetch_run(source.id, "live")
+        storage.record_failure(
+            source.id, run, RuntimeError("live failure"), OBSERVED_AT
+        )
+        before = storage.get_stream_state(source.id)
+        snapshots = storage.latest_snapshot_headlines()
+
+        class BrokenHistory(HistoryFixtureAdapter):
+            def parse_history_page(
+                self,
+                source: Source,
+                response: HttpResponse,
+                since: datetime,
+            ) -> HistoryPage:
+                raise ValueError("history schema changed")
+
+        failing = IngestionService(
+            storage,
+            FakeTransport(b"{}"),
+            FixedAdapterResolver({"history": BrokenHistory()}),
+            BatchValidator(ValidationConfig()),
+            IngestionConfig(),
+        )
+        if batch:
+            result = failing.fetch_sources(
+                [source], since=OBSERVED_AT - timedelta(days=1)
+            )
+            assert len(result.failures) == 1
+        else:
+            with pytest.raises(ValueError, match="history schema changed"):
+                failing.fetch_source(source, since=OBSERVED_AT - timedelta(days=1))
+        assert storage.get_stream_state(source.id) == before
+        assert storage.latest_snapshot_headlines() == snapshots
+        failed = storage.recent_fetch_runs()[0]
+        assert failed.run_kind == "history"
+        assert failed.status == "failed"
+        assert failed.error_type == "ValueError"
+    finally:
+        storage.close()

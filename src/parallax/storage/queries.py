@@ -5,13 +5,17 @@ from __future__ import annotations
 import sqlite3
 from datetime import datetime
 
+from parallax.archive import FetchRunRow, HeadlineRow
 from parallax.domain import (
     BrowseView,
     StreamState,
     is_browse_view,
 )
-from parallax.read_models import FetchRunRow, HeadlineRow
-from parallax.storage.encoding import decode_datetime, encode_datetime
+from parallax.storage.encoding import (
+    decode_datetime,
+    decode_required_datetime,
+    encode_datetime,
+)
 
 _LATEST_ITEM_VERSION_JOIN_SQL = """
     JOIN item_versions iv ON iv.id = (
@@ -37,8 +41,8 @@ def _headline_row(row: sqlite3.Row) -> HeadlineRow:
         title=row["title"],
         url=row["url"],
         canonical_url=row["canonical_url"],
-        published_at=row["published_at"],
-        first_seen_at=row["first_seen_at"],
+        published_at=decode_datetime(row["published_at"]),
+        first_seen_at=decode_required_datetime(row["first_seen_at"]),
     )
 
 
@@ -211,8 +215,8 @@ def latest_snapshot_headlines(
                 se.position,
                 iv.title,
                 i.id AS item_id,
-                i.original_url AS url,
-                i.canonical_url,
+                se.original_url AS url,
+                se.canonical_url,
                 i.published_at,
                 i.first_seen_at,
                 ROW_NUMBER() OVER (
@@ -398,8 +402,9 @@ def _fetch_run_row(row: sqlite3.Row) -> FetchRunRow:
         id=row["id"],
         source_id=row["source_id"],
         status=row["status"],
-        started_at=row["started_at"],
-        finished_at=row["finished_at"],
+        run_kind=row["run_kind"],
+        started_at=decode_required_datetime(row["started_at"]),
+        finished_at=decode_datetime(row["finished_at"]),
         item_count=row["item_count"],
         new_item_count=row["new_item_count"],
         new_version_count=row["new_version_count"],
