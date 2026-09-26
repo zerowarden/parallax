@@ -227,7 +227,8 @@ make check
 ```
 
 Ruff handles linting and formatting. Type checks use mypy for application code
-and basedpyright for application code and tests. The local pre-commit hooks run
+and basedpyright for application code and tests. Tool caches and coverage data
+are stored under the ignored `.cache/` directory. The local pre-commit hooks run
 the same lint, format, and type checks as `make check`. The GitHub Actions workflow
 in `.github/workflows/check.yml` runs `make check` on pushes and pull requests
 with Python 3.12 and locked development dependencies. It follows the official

@@ -37,6 +37,7 @@ build-backend = "hatchling.build"
 packages = ["src/parallax"]
 
 [tool.ruff]
+cache-dir = ".cache/ruff"
 target-version = "py312"
 line-length = 88
 src = ["src", "tests"]
@@ -45,6 +46,7 @@ src = ["src", "tests"]
 select = ["E", "F", "I", "UP", "B", "SIM"]
 
 [tool.mypy]
+cache_dir = ".cache/mypy"
 python_version = "3.12"
 strict = true
 packages = ["parallax"]
@@ -57,6 +59,7 @@ reportMissingParameterType = "error"
 reportDeprecated = "error"
 
 [tool.pytest.ini_options]
+cache_dir = ".cache/pytest"
 testpaths = ["tests"]
 addopts = "-q -m 'not live'"
 markers = [
@@ -64,6 +67,7 @@ markers = [
 ]
 
 [tool.coverage.run]
+data_file = ".cache/coverage"
 branch = true
 source = ["parallax"]
 
