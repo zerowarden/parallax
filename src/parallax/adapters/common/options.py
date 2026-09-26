@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from parallax.config import Source
 
+DEFAULT_HISTORY_MAX_ITEMS = 1000
+DEFAULT_HISTORY_MAX_PAGES = 5
+DEFAULT_HISTORY_PAGE_SIZE = 100
+
 
 def option_int(source: Source, key: str, default: int) -> int:
     """Read a positive integer source option, failing clearly when invalid."""

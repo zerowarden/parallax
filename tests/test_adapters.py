@@ -13,6 +13,7 @@ from adapter_contract import (
     assert_parse_rejects,
     response_for,
 )
+from parallax.adapters import AdapterRegistry
 from parallax.adapters.base import CompleteStep, ContinueStep
 from parallax.adapters.cn.baidu import BaiduHotSearchAdapter
 from parallax.adapters.cn.bilibili import (
@@ -2449,8 +2450,7 @@ def test_tieba_adapter_parses_topic_list(fixtures_dir: Path):
     assert first.external_id == "28364580"
     assert first.title == "草台班子!亚运代表队被困机场"
     assert first.url.startswith(
-        "https://tieba.baidu.com/hottopic/browse/hottopic?"
-        "topic_id=28364580&topic_name="
+        "https://tieba.baidu.com/hottopic/browse/hottopic?topic_id=28364580&topic_name="
     )
     assert "&amp;" not in first.url
     assert first.published_at == datetime.fromtimestamp(1789610507, tz=UTC)
@@ -3124,10 +3124,14 @@ def test_now_news_adapter_history_pages_and_filters(fixtures_dir: Path):
     since = datetime.fromtimestamp(1789560000, tz=UTC)
 
     requests = NowNewsAdapter().build_history_requests(source, since)
-    batch = NowNewsAdapter().parse_history_responses(
-        source,
-        tuple(response_for(source, payload) for _ in requests),
-        since,
+    batch = (
+        NowNewsAdapter()
+        .parse_history_page(
+            source,
+            response_for(source, payload),
+            since,
+        )
+        .batch
     )
 
     assert [request.params["pageNo"] for request in requests] == ["1", "2"]
@@ -3339,7 +3343,7 @@ def test_hackernews_adapter_builds_history_request():
     assert request.params["numericFilters"] == (
         f"created_at_i>{int(since.timestamp())}"
     )
-    assert request.params["hitsPerPage"] == "30"
+    assert request.params["hitsPerPage"] == "100"
 
 
 def test_hackernews_adapter_parses_history(fixtures_dir: Path):
@@ -3347,10 +3351,14 @@ def test_hackernews_adapter_parses_history(fixtures_dir: Path):
     payload = (fixtures_dir / "hackernews" / "algolia.json").read_bytes()
     since = datetime(2026, 9, 17, 8, 0, tzinfo=UTC)
 
-    batch = HackerNewsHotAdapter().parse_history_responses(
-        source,
-        (response_for(source, payload),),
-        since,
+    batch = (
+        HackerNewsHotAdapter()
+        .parse_history_page(
+            source,
+            response_for(source, payload),
+            since,
+        )
+        .batch
     )
 
     assert_batch_contract(batch)
@@ -3371,8 +3379,44 @@ def test_hackernews_adapter_rejects_incompatible_history_payload():
     since = datetime(2026, 9, 17, 8, 0, tzinfo=UTC)
 
     with pytest.raises(ValueError, match="hits"):
-        HackerNewsHotAdapter().parse_history_responses(
+        HackerNewsHotAdapter().parse_history_page(
             source,
-            (response_for(source, b'{"items": []}'),),
+            response_for(source, b'{"items": []}'),
             since,
         )
+
+
+@pytest.mark.parametrize("encoding", ["utf-8", "utf-16"])
+@pytest.mark.parametrize("padding", [0, 70000])
+@pytest.mark.parametrize(
+    "declaration",
+    [
+        "<!DOCTYPE rss>",
+        '<!DOCTYPE rss [<!ENTITY text "expanded">]>',
+        '<!DOCTYPE rss SYSTEM "https://example.test/external.dtd">',
+    ],
+)
+def test_rss_rejects_declarations_at_parser_level(
+    encoding: str, padding: int, declaration: str
+) -> None:
+    source = _source("rss", "https://example.test/rss")
+    xml = (
+        f'<?xml version="1.0" encoding="{encoding}"?>'
+        + " " * padding
+        + declaration
+        + "<rss><channel/></rss>"
+    )
+    with pytest.raises(ValueError, match="DTD or entity"):
+        RssAdapter().parse(source, response_for(source, xml.encode(encoding)))
+
+
+@pytest.mark.parametrize(
+    "key", ["history_max_pages", "history_max_items", "history_page_size"]
+)
+@pytest.mark.parametrize("value", [True, "3", 0, -1, 1.5])
+def test_history_options_are_validated_during_catalog_lint(
+    key: str, value: object
+) -> None:
+    source = make_source(adapter="now_news", options={key: value})
+    with pytest.raises(ValueError, match=key):
+        AdapterRegistry().validate_source(source)

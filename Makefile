@@ -1,18 +1,18 @@
 .PHONY: format format-check lint type test check
 
 format:
-	uv run black src tests
 	uv run ruff check --fix src tests
+	uv run ruff format src tests
 
 format-check:
-	uv run black --check src tests
+	uv run ruff format --check src tests
 
 lint:
 	uv run ruff check src tests
 
 type:
 	uv run mypy src
-	uv run pyright
+	uv run basedpyright
 
 test:
 	uv run pytest --cov=parallax

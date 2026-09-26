@@ -154,7 +154,7 @@ def test_show_defaults_to_observed_order(monkeypatch: pytest.MonkeyPatch) -> Non
         ),
     ]
     runtime = _ShowRuntime(rows)
-    monkeypatch.setattr("parallax.cli._runtime", lambda config: runtime)
+    monkeypatch.setattr("parallax.cli._archive", lambda config: runtime)
     monkeypatch.setenv("COLUMNS", "200")
 
     result = CliRunner().invoke(app, ["show"])
@@ -187,7 +187,7 @@ def test_show_published_order_excludes_undated_groups(
         ),
     ]
     runtime = _ShowRuntime(rows)
-    monkeypatch.setattr("parallax.cli._runtime", lambda config: runtime)
+    monkeypatch.setattr("parallax.cli._archive", lambda config: runtime)
     monkeypatch.setenv("COLUMNS", "200")
 
     result = CliRunner().invoke(app, ["show", "--order", "published"])
@@ -214,7 +214,7 @@ def test_show_with_source_uses_position_rendering(
         ),
     ]
     runtime = _ShowRuntime(rows)
-    monkeypatch.setattr("parallax.cli._runtime", lambda config: runtime)
+    monkeypatch.setattr("parallax.cli._archive", lambda config: runtime)
     monkeypatch.setenv("COLUMNS", "200")
 
     result = CliRunner().invoke(app, ["show", "--source", "fixture"])
@@ -230,7 +230,7 @@ def test_show_rejects_non_default_order_with_source(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     runtime = _ShowRuntime([])
-    monkeypatch.setattr("parallax.cli._runtime", lambda config: runtime)
+    monkeypatch.setattr("parallax.cli._archive", lambda config: runtime)
     monkeypatch.setenv("COLUMNS", "200")
 
     result = CliRunner().invoke(
@@ -245,7 +245,7 @@ def test_show_rejects_non_default_order_with_source(
 
 def test_show_rejects_unknown_order(monkeypatch: pytest.MonkeyPatch) -> None:
     runtime = _ShowRuntime([])
-    monkeypatch.setattr("parallax.cli._runtime", lambda config: runtime)
+    monkeypatch.setattr("parallax.cli._archive", lambda config: runtime)
     monkeypatch.setenv("COLUMNS", "200")
 
     result = CliRunner().invoke(app, ["show", "--order", "recent"])
@@ -286,7 +286,7 @@ def test_web_serves_local_reader_with_defaults(
         captured["sources"] = sources
         return application
 
-    monkeypatch.setattr("parallax.cli._runtime", lambda config: runtime)
+    monkeypatch.setattr("parallax.cli._archive", lambda config: runtime)
     monkeypatch.setattr("parallax.cli.create_app", fake_create_app)
 
     result = CliRunner().invoke(app, ["web"])
@@ -303,7 +303,7 @@ def test_web_forwards_host_and_port(monkeypatch: pytest.MonkeyPatch) -> None:
     application = _WebApp()
     runtime = _WebRuntime(storage=object())
 
-    monkeypatch.setattr("parallax.cli._runtime", lambda config: runtime)
+    monkeypatch.setattr("parallax.cli._archive", lambda config: runtime)
     monkeypatch.setattr(
         "parallax.cli.create_app",
         lambda storage, sources: application,
@@ -321,7 +321,7 @@ def test_web_quiets_werkzeug_access_logs(monkeypatch: pytest.MonkeyPatch) -> Non
     runtime = _WebRuntime(storage=object())
     werkzeug_logger = logging.getLogger("werkzeug")
     monkeypatch.setattr(werkzeug_logger, "level", logging.INFO)
-    monkeypatch.setattr("parallax.cli._runtime", lambda config: runtime)
+    monkeypatch.setattr("parallax.cli._archive", lambda config: runtime)
     monkeypatch.setattr(
         "parallax.cli.create_app",
         lambda storage, sources: application,

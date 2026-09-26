@@ -29,11 +29,12 @@ class HeadlineFeedRow:
     first_seen_at: str
     source_name: str
     duplicate_count: int
+    source_role: Literal["wording", "appearance"] = "wording"
 
 
 @dataclass(frozen=True, slots=True)
 class BrowsePage:
-    """One bounded page of source-local headlines for a browse view."""
+    """Canonical item titles with source appearances for a browse view."""
 
     items: tuple[HeadlineFeedRow, ...]
     page: int
@@ -77,7 +78,8 @@ def browse_items(
 ) -> BrowsePage:
     """Read one bounded page of historical items for a top-level browse view.
 
-    Browser pagination intentionally keeps source-local rows. The terminal's
+    Browser pagination uses canonical items with representative appearances.
+    A selected source need not have supplied the displayed wording. The terminal's
     transitive cross-source grouping requires the complete result set, which
     would defeat bounded SQL pagination here.
     """
@@ -102,7 +104,10 @@ def browse_items(
         offset=(current_page - 1) * page_size,
     )
     return BrowsePage(
-        items=tuple(_headline_feed_row(row, duplicate_count=0) for row in rows),
+        items=tuple(
+            _headline_feed_row(row, duplicate_count=0, source_role="appearance")
+            for row in rows
+        ),
         page=current_page,
         total_pages=total_pages,
     )
@@ -200,7 +205,10 @@ def _feed_row(group: HeadlineGroup) -> HeadlineFeedRow:
 
 
 def _headline_feed_row(
-    representative: HeadlineRow, *, duplicate_count: int
+    representative: HeadlineRow,
+    *,
+    duplicate_count: int,
+    source_role: Literal["wording", "appearance"] = "wording",
 ) -> HeadlineFeedRow:
     return HeadlineFeedRow(
         title=representative.title,
@@ -209,6 +217,7 @@ def _headline_feed_row(
         first_seen_at=representative.first_seen_at,
         source_name=representative.source_name,
         duplicate_count=duplicate_count,
+        source_role=source_role,
     )
 
 

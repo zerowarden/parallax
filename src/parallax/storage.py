@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
 import logging
 import sqlite3
 from collections.abc import Generator, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -17,6 +18,7 @@ from parallax.domain import (
     ChangeEvent,
     EntityKind,
     HeadlineCandidate,
+    HistoryOutcome,
     IngestionSummary,
     ItemVariant,
     StreamState,
@@ -31,7 +33,24 @@ from parallax.identity import identity_keys
 from parallax.normalization import canonicalize_url, normalize_title_for_version
 
 LOGGER = logging.getLogger(__name__)
-SCHEMA_VERSION = 0
+SCHEMA_VERSION = 1
+
+
+@contextmanager
+def collector_lock(database_path: Path) -> Generator[None, None, None]:
+    """One collector per archive; the OS releases ownership after a crash."""
+    path = database_path.resolve()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.with_name(path.name + ".collector.lock").open("a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise RuntimeError(f"Another collector owns {path}") from exc
+        try:
+            yield
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
+
 
 _LATEST_ITEM_VERSION_JOIN_SQL = """
     JOIN item_versions iv ON iv.id = (
@@ -75,6 +94,7 @@ class FetchRunRow:
     http_status: int | None
     error_type: str | None
     error_message: str | None
+    history_json: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,19 +115,31 @@ class _ResolvedObservation:
 
 
 class Storage:
-    def __init__(self, database_path: Path) -> None:
+    def __init__(self, database_path: Path, *, read_only: bool = False) -> None:
         self.database_path = database_path
-        self.database_path.parent.mkdir(parents=True, exist_ok=True)
+        if not read_only:
+            self.database_path.parent.mkdir(parents=True, exist_ok=True)
         self._connection = sqlite3.connect(
-            self.database_path,
+            (
+                f"{database_path.resolve().as_uri()}?mode=ro"
+                if read_only
+                else database_path
+            ),
             timeout=10.0,
             isolation_level=None,
+            uri=read_only,
         )
-        self._connection.row_factory = sqlite3.Row
-        self._connection.execute("PRAGMA foreign_keys = ON")
-        self._connection.execute("PRAGMA journal_mode = WAL")
-        self._connection.execute("PRAGMA synchronous = FULL")
-        self._connection.execute("PRAGMA busy_timeout = 10000")
+        try:
+            self._connection.row_factory = sqlite3.Row
+            self._check_schema(require_existing=read_only)
+            self._connection.execute("PRAGMA foreign_keys = ON")
+            if not read_only:
+                self._connection.execute("PRAGMA journal_mode = WAL")
+                self._connection.execute("PRAGMA synchronous = FULL")
+            self._connection.execute("PRAGMA busy_timeout = 10000")
+        except BaseException:
+            self._connection.close()
+            raise
         LOGGER.info(
             "operation=database_open path=%s sqlite_version=%s",
             self.database_path,
@@ -164,7 +196,8 @@ class Storage:
                     last_success_at TEXT,
                     consecutive_failures INTEGER NOT NULL DEFAULT 0,
                     etag TEXT,
-                    last_modified TEXT
+                    last_modified TEXT,
+                    request_identity TEXT
                 );
 
                 CREATE TABLE IF NOT EXISTS fetch_runs (
@@ -182,7 +215,8 @@ class Storage:
                     error_type TEXT,
                     error_message TEXT,
                     response_etag TEXT,
-                    response_last_modified TEXT
+                    response_last_modified TEXT,
+                    history_json TEXT
                 );
 
                 CREATE INDEX IF NOT EXISTS idx_fetch_runs_source_started
@@ -305,6 +339,10 @@ class Storage:
         now = _iso_now()
         LOGGER.info("operation=source_sync count=%s", len(sources))
         with self.transaction():
+            self._connection.execute(
+                "UPDATE sources SET enabled = 0, updated_at = ? WHERE enabled = 1",
+                (now,),
+            )
             for source in sources:
                 self._connection.execute(
                     """
@@ -381,18 +419,56 @@ class Storage:
                     """,
                     (source.id,),
                 )
-            if sources:
-                placeholders = ", ".join("?" for _ in sources)
-                cursor = self._connection.execute(
-                    f"""
-                    UPDATE sources SET enabled = 0, updated_at = ?
-                    WHERE enabled = 1
-                      AND source_id NOT IN ({placeholders})
-                    """,
-                    (now, *(source.id for source in sources)),
+
+    def _check_schema(self, *, require_existing: bool) -> None:
+        exists = self._connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_meta'"
+        ).fetchone()
+        if exists is None:
+            if require_existing:
+                raise RuntimeError("Archive is not initialized; run parallax init")
+            return
+        row = self._connection.execute(
+            "SELECT version FROM schema_meta LIMIT 1"
+        ).fetchone()
+        if row is None or row["version"] != SCHEMA_VERSION:
+            raise RuntimeError(
+                "Unsupported schema version; preserve the old archive and "
+                "recreate the database to continue."
+            )
+
+    def sources(self) -> tuple[Source, ...]:
+        """Return the enabled catalog stored by the last collector reconciliation."""
+        rows = self._connection.execute(
+            "SELECT config_json FROM sources WHERE enabled = 1 ORDER BY source_id"
+        ).fetchall()
+        return tuple(Source.model_validate_json(row["config_json"]) for row in rows)
+
+    def recover_abandoned_runs(self) -> None:
+        """Finalize abandoned runs; caller must hold the exclusive collector lock."""
+        now = _iso_now()
+        with self.transaction():
+            self._connection.execute(
+                """
+                UPDATE stream_state SET next_run_at = ?,
+                    consecutive_failures = consecutive_failures + 1
+                WHERE source_id IN (
+                    SELECT source_id FROM fetch_runs WHERE status = 'running'
                 )
-                if cursor.rowcount > 0:
-                    LOGGER.info("operation=source_disable count=%s", cursor.rowcount)
+                """,
+                (now,),
+            )
+            cursor = self._connection.execute(
+                """
+                UPDATE fetch_runs SET status = 'failed', finished_at = ?,
+                    error_type = 'AbandonedRun',
+                    error_message = 'Previous collector exited before run completion'
+                WHERE status = 'running'
+                """,
+                (now,),
+            )
+        if cursor.rowcount:
+            LOGGER.warning("operation=fetch_runs_recovered count=%s", cursor.rowcount)
 
     def get_stream_state(self, source_id: str) -> StreamState:
         row = self._connection.execute(
@@ -450,6 +526,7 @@ class Storage:
         response_last_modified: str | None,
         next_run_at: datetime,
         observed_at: datetime,
+        request_identity: str | None = None,
     ) -> IngestionSummary:
         now = _iso_now()
         observed = _iso(observed_at)
@@ -523,6 +600,7 @@ class Storage:
                 now,
                 response_etag,
                 response_last_modified,
+                request_identity,
             )
 
         LOGGER.info(
@@ -550,6 +628,7 @@ class Storage:
         source: Source,
         fetch_run_id: int,
         batch: ValidatedBatch,
+        outcome: HistoryOutcome | None = None,
     ) -> IngestionSummary:
         """Store backfilled items without touching snapshots or scheduling.
 
@@ -557,6 +636,14 @@ class Storage:
         latest snapshot or advance the source's freshness state.
         """
         now = _iso_now()
+        status = (
+            "unsupported"
+            if outcome is not None and outcome.status == "unsupported"
+            else "history"
+        )
+        history_json = (
+            json.dumps(asdict(outcome), default=_iso) if outcome is not None else None
+        )
         with self.transaction():
             new_items, new_versions, resolved = self._store_candidates(
                 source,
@@ -568,21 +655,24 @@ class Storage:
                 """
                 UPDATE fetch_runs SET
                     finished_at = ?,
-                    status = 'history',
+                    status = ?,
                     item_count = ?,
                     new_item_count = ?,
                     new_version_count = ?,
                     rejected_count = ?,
-                    warning_count = ?
+                    warning_count = ?,
+                    history_json = ?
                 WHERE id = ?
                 """,
                 (
                     now,
+                    status,
                     len(resolved),
                     new_items,
                     new_versions,
                     batch.rejected_count,
                     len(batch.warnings),
+                    history_json,
                     fetch_run_id,
                 ),
             )
@@ -600,11 +690,12 @@ class Storage:
         return IngestionSummary(
             source_id=source.id,
             fetch_run_id=fetch_run_id,
-            status="history",
+            status=status,
             item_count=len(resolved),
             new_item_count=new_items,
             new_version_count=new_versions,
             rejected_count=batch.rejected_count,
+            history=outcome,
         )
 
     def record_not_modified(
@@ -614,9 +705,15 @@ class Storage:
         response_etag: str | None,
         response_last_modified: str | None,
         next_run_at: datetime,
+        request_identity: str | None = None,
     ) -> IngestionSummary:
         now = _iso_now()
         with self.transaction():
+            state = self.get_stream_state(source_id)
+            if state.request_identity != request_identity:
+                raise ValueError(
+                    "304 response does not match the stored request identity"
+                )
             self._connection.execute(
                 """
                 UPDATE fetch_runs SET
@@ -633,8 +730,13 @@ class Storage:
                 source_id,
                 next_run_at,
                 now,
-                response_etag,
-                response_last_modified,
+                response_etag if response_etag is not None else state.etag,
+                (
+                    response_last_modified
+                    if response_last_modified is not None
+                    else state.last_modified
+                ),
+                request_identity,
             )
         LOGGER.info(
             "operation=fetch_not_modified source_id=%s fetch_run_id=%s",
@@ -651,7 +753,7 @@ class Storage:
         self,
         source_id: str,
         fetch_run_id: int,
-        error: Exception,
+        error: BaseException,
         next_run_at: datetime,
         http_status: int | None = None,
         error_message: str | None = None,
@@ -660,7 +762,7 @@ class Storage:
         error_type = type(error).__name__
         message = error_message if error_message is not None else str(error)[:2000]
         with self.transaction():
-            self._connection.execute(
+            cursor = self._connection.execute(
                 """
                 UPDATE fetch_runs SET
                     finished_at = ?,
@@ -668,10 +770,12 @@ class Storage:
                     http_status = ?,
                     error_type = ?,
                     error_message = ?
-                WHERE id = ?
+                WHERE id = ? AND status = 'running'
                 """,
                 (now, http_status, error_type, message, fetch_run_id),
             )
+            if not cursor.rowcount:
+                return
             self._connection.execute(
                 """
                 UPDATE stream_state SET
@@ -785,7 +889,9 @@ class Storage:
         Items are deduplicated at item level; each item is projected with a
         representative observation (latest observation from a source exposing
         the requested surface) and its most recently observed stored title
-        version. Ordered newest first.
+        version across all channels, which may differ from the wording that
+        the representative source displayed. Equal observation timestamps
+        choose the greater version ID. Ordered newest first.
         """
         if limit < 1:
             raise ValueError("limit must be positive")
@@ -925,6 +1031,7 @@ class Storage:
             http_status=row["http_status"],
             error_type=row["error_type"],
             error_message=row["error_message"],
+            history_json=row["history_json"],
         )
 
     def changes_after(self, seq: int, limit: int = 100) -> list[ChangeEvent]:
@@ -1034,11 +1141,10 @@ class Storage:
 
     def _rollback_active_transaction(self) -> None:
         """Roll back a still-open transaction without masking the original error."""
-        if not self._connection.in_transaction:
-            return
         try:
-            self._connection.execute("ROLLBACK")
-        except Exception:
+            if self._connection.in_transaction:
+                self._connection.execute("ROLLBACK")
+        except BaseException:
             LOGGER.exception(
                 "operation=transaction_rollback_failed path=%s",
                 self.database_path,
@@ -1051,6 +1157,7 @@ class Storage:
         now: str,
         response_etag: str | None,
         response_last_modified: str | None,
+        request_identity: str | None,
     ) -> None:
         self._connection.execute(
             """
@@ -1058,8 +1165,9 @@ class Storage:
                 next_run_at = ?,
                 last_success_at = ?,
                 consecutive_failures = 0,
-                etag = COALESCE(?, etag),
-                last_modified = COALESCE(?, last_modified)
+                etag = ?,
+                last_modified = ?,
+                request_identity = ?
             WHERE source_id = ?
             """,
             (
@@ -1067,6 +1175,7 @@ class Storage:
                 now,
                 response_etag,
                 response_last_modified,
+                request_identity,
                 source_id,
             ),
         )
@@ -1430,6 +1539,7 @@ def _stream_state_row(row: sqlite3.Row) -> StreamState:
         consecutive_failures=row["consecutive_failures"],
         etag=row["etag"],
         last_modified=row["last_modified"],
+        request_identity=row["request_identity"],
     )
 
 
@@ -1471,8 +1581,7 @@ def _analysis_item(
         raw_entity_kind = str(row["entity_kind"])
         if not is_entity_kind(raw_entity_kind):
             raise ValueError(
-                f"item {event.item_id} has unsupported entity kind "
-                f"{raw_entity_kind!r}"
+                f"item {event.item_id} has unsupported entity kind {raw_entity_kind!r}"
             )
         entity_kind = raw_entity_kind
     item_variant: ItemVariant | None = None
@@ -1508,7 +1617,9 @@ def _analysis_item(
 
 
 def _iso(value: datetime) -> str:
-    return value.astimezone(UTC).isoformat(timespec="seconds")
+    if value.tzinfo is None:
+        raise ValueError("stored timestamps must be timezone-aware")
+    return value.astimezone(UTC).isoformat(timespec="microseconds")
 
 
 def _validate_browse_bounds(

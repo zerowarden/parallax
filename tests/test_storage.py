@@ -72,10 +72,8 @@ def test_initialize_records_schema_version_and_rejects_mismatch(
         recorded = connection.execute("SELECT version FROM schema_meta").fetchone()
         connection.execute("UPDATE schema_meta SET version = ?", (SCHEMA_VERSION + 1,))
 
-    stale = Storage(database_path)
     with pytest.raises(RuntimeError, match="Unsupported schema version"):
-        stale.initialize()
-    stale.close()
+        Storage(database_path)
 
     assert recorded == (SCHEMA_VERSION,)
 
@@ -241,7 +239,7 @@ def test_out_of_order_observations_preserve_temporal_bounds_and_latest_snapshot(
     source = _source()
     storage.sync_sources([source])
     older_observation = OBSERVED_AT
-    newer_observation = OBSERVED_AT + timedelta(minutes=5)
+    newer_observation = OBSERVED_AT + timedelta(microseconds=5)
 
     def batch(url: str, position: int) -> ValidatedBatch:
         return ValidatedBatch(
@@ -294,8 +292,8 @@ def test_out_of_order_observations_preserve_temporal_bounds_and_latest_snapshot(
     assert rows[0].url == "https://example.com/newer"
     assert rows[0].canonical_url == "https://example.com/newer"
     assert item_times == (
-        older_observation.isoformat(),
-        newer_observation.isoformat(),
+        older_observation.isoformat(timespec="microseconds"),
+        newer_observation.isoformat(timespec="microseconds"),
     )
     assert version_times == item_times
 
@@ -394,7 +392,7 @@ def test_later_publication_time_fills_existing_unknown_value(tmp_path: Path):
 
     rows = storage.latest_snapshot_headlines()
     assert len(rows) == 1
-    assert rows[0].published_at == published.isoformat()
+    assert rows[0].published_at == published.isoformat(timespec="microseconds")
     storage.close()
 
 
@@ -660,8 +658,8 @@ def test_success_commit_uses_observation_time_for_seen_fields(tmp_path: Path) ->
             "SELECT observed_at FROM snapshots ORDER BY id DESC LIMIT 1"
         ).fetchone()
 
-    assert rows[0].first_seen_at == observed_at.isoformat()
-    assert snapshot_observed_at == (observed_at.isoformat(),)
+    assert rows[0].first_seen_at == observed_at.isoformat(timespec="microseconds")
+    assert snapshot_observed_at == (observed_at.isoformat(timespec="microseconds"),)
     assert runs[0].finished_at is not None
     assert datetime.fromisoformat(runs[0].finished_at) > observed_at
 
@@ -1210,3 +1208,142 @@ def test_browse_membership_is_per_observation(tmp_path: Path) -> None:
     assert {
         row.source_id for row in all_rows if row.url == "https://example.com/news/1"
     } == {"discover-source"}
+
+
+def test_current_title_tracks_a_b_a_within_one_second(tmp_path: Path) -> None:
+    storage = Storage(tmp_path / "archive.db")
+    storage.initialize()
+    source = _source()
+    storage.sync_sources([source])
+    for micros, title in [(100000, "A"), (300000, "B"), (800000, "A")]:
+        observed = OBSERVED_AT + timedelta(microseconds=micros)
+        storage.record_success(
+            source,
+            storage.start_fetch_run(source.id),
+            200,
+            ValidatedBatch(
+                (HeadlineCandidate(title, "https://example.com/1", "one"),), 0
+            ),
+            None,
+            None,
+            observed,
+            observed,
+        )
+    rows = storage.browse_headlines(
+        view="all",
+        since=OBSERVED_AT,
+        until=OBSERVED_AT + timedelta(seconds=1),
+        limit=10,
+        offset=0,
+    )
+    assert [row.title for row in rows] == ["A"]
+    assert [row.title for row in storage.latest_snapshot_headlines()] == ["A"]
+    versions = storage._connection.execute(
+        "SELECT title, last_seen_at FROM item_versions ORDER BY id"
+    ).fetchall()
+    assert [(row[0], row[1]) for row in versions] == [
+        ("A", "2026-09-18T12:00:00.800000+00:00"),
+        ("B", "2026-09-18T12:00:00.300000+00:00"),
+    ]
+    storage.close()
+
+
+def test_sync_empty_catalog_disables_all_without_deleting_history(
+    tmp_path: Path,
+) -> None:
+    storage = Storage(tmp_path / "archive.db")
+    storage.initialize()
+    source = _source()
+    storage.sync_sources([source])
+    run = storage.start_fetch_run(source.id)
+    storage.record_success(
+        source,
+        run,
+        200,
+        ValidatedBatch((HeadlineCandidate("A", "https://example.com/1"),), 0),
+        None,
+        None,
+        OBSERVED_AT,
+        OBSERVED_AT,
+    )
+    storage.sync_sources([])
+    assert storage.sources() == ()
+    assert storage.stream_states(enabled_only=True) == []
+    assert storage.latest_snapshot_headlines() == []
+    assert len(storage.latest_snapshot_headlines(enabled_only=False)) == 1
+    storage.close()
+
+
+def test_full_response_replaces_validators_while_304_preserves_omissions(
+    tmp_path: Path,
+) -> None:
+    storage = Storage(tmp_path / "archive.db")
+    storage.initialize()
+    source = _source()
+    storage.sync_sources([source])
+    batch = ValidatedBatch((HeadlineCandidate("A", "https://example.com/1"),), 0)
+    storage.record_success(
+        source,
+        storage.start_fetch_run(source.id),
+        200,
+        batch,
+        '"one"',
+        "yesterday",
+        OBSERVED_AT,
+        OBSERVED_AT,
+        "identity",
+    )
+    storage.record_not_modified(
+        source.id,
+        storage.start_fetch_run(source.id),
+        '"two"',
+        None,
+        OBSERVED_AT,
+        "identity",
+    )
+    state = storage.get_stream_state(source.id)
+    assert (state.etag, state.last_modified, state.request_identity) == (
+        '"two"',
+        "yesterday",
+        "identity",
+    )
+    storage.record_success(
+        source,
+        storage.start_fetch_run(source.id),
+        200,
+        batch,
+        None,
+        None,
+        OBSERVED_AT,
+        OBSERVED_AT,
+        "identity",
+    )
+    state = storage.get_stream_state(source.id)
+    assert (state.etag, state.last_modified) == (None, None)
+    run = storage.start_fetch_run(source.id)
+    state = storage.get_stream_state(source.id)
+    with pytest.raises(ValueError, match="request identity"):
+        storage.record_not_modified(
+            source.id, run, None, None, OBSERVED_AT, "different"
+        )
+    assert storage.get_stream_state(source.id) == state
+    assert storage.recent_fetch_runs()[0].status == "running"
+    storage.close()
+
+
+def test_rollback_failure_does_not_replace_original_error(tmp_path: Path) -> None:
+    class BrokenRollback(_CommitFailingConnection):
+        def execute(self, sql: str) -> None:
+            if sql == "ROLLBACK":
+                raise KeyboardInterrupt("cleanup interrupted")
+            super().execute(sql)
+
+    storage = Storage(tmp_path / "archive.db")
+    storage._connection.close()
+    storage._connection = BrokenRollback()  # type: ignore[assignment]
+    with (
+        pytest.raises(sqlite3.OperationalError, match="disk I/O error"),
+        storage.transaction(),
+    ):
+        pass
+    storage.close()

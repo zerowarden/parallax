@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Protocol, runtime_checkable
 
 from parallax.config import Source
-from parallax.domain import HttpResponse, ParsedBatch, RequestSpec
+from parallax.domain import HistoryPage, HttpResponse, ParsedBatch, RequestSpec
 
 
 class SourceAdapter(Protocol):
@@ -103,13 +103,13 @@ class HistoricalAdapter(Protocol):
         """Build the requests covering items published since ``since``."""
         ...
 
-    def parse_history_responses(
+    def parse_history_page(
         self,
         source: Source,
-        responses: tuple[HttpResponse, ...],
+        response: HttpResponse,
         since: datetime,
-    ) -> ParsedBatch:
-        """Parse the history responses, keeping only in-window items."""
+    ) -> HistoryPage:
+        """Parse one page; exhausted requires upstream evidence, not filtering."""
         ...
 
 

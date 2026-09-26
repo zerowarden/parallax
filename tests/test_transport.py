@@ -855,3 +855,81 @@ def test_transport_allows_different_hosts_to_overlap() -> None:
     transport.close()
 
     assert not any(thread.is_alive() for thread in threads)
+
+
+@pytest.mark.parametrize(
+    "change",
+    ["none", "url", "method", "params", "headers", "body", "auth", "max_items"],
+)
+def test_conditional_headers_require_matching_effective_request(
+    change: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from dataclasses import replace
+
+    monkeypatch.setenv("TEST_PARALLAX_TOKEN", "first")
+    source = make_source(auth=AuthConfig(kind="bearer", env_var="TEST_PARALLAX_TOKEN"))
+    request = RequestSpec("GET", source.endpoint.url)
+    observed: list[httpx.Request] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        observed.append(request)
+        return httpx.Response(200, headers={"etag": '"v1"'}, content=b"ok")
+
+    with HttpTransport(HttpConfig()) as transport:
+        transport._client.close()
+        transport._client = httpx.Client(transport=httpx.MockTransport(respond))
+        first = transport.request(request, source, StreamState(source.id))
+        state = StreamState(
+            source.id,
+            etag='"v1"',
+            last_modified="yesterday",
+            request_identity=first.request_identity,
+        )
+        if change == "url":
+            request = replace(request, url="https://example.test/new")
+        elif change == "method":
+            request = replace(request, method="POST")
+        elif change == "params":
+            request = replace(request, params={"view": "new"})
+        elif change == "headers":
+            source = source.model_copy(update={"headers": {"Accept-Language": "zh-HK"}})
+        elif change == "body":
+            request = replace(request, content=b"new")
+        elif change == "auth":
+            monkeypatch.setenv("TEST_PARALLAX_TOKEN", "second")
+        elif change == "max_items":
+            source = source.model_copy(update={"max_items": 99})
+        second = transport.request(request, source, state)
+    assert ("if-none-match" in observed[1].headers) == (change == "none")
+    assert ("if-modified-since" in observed[1].headers) == (change == "none")
+    assert (first.request_identity == second.request_identity) == (change == "none")
+    assert first.request_identity is not None and "first" not in first.request_identity
+
+
+def test_redirect_target_change_does_not_forward_previous_validators() -> None:
+    source = make_source(url="https://example.test/redirect")
+    target = "/first"
+    observed: list[httpx.Request] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        observed.append(request)
+        if request.url.path == "/redirect":
+            return httpx.Response(302, headers={"location": target})
+        return httpx.Response(200, headers={"etag": '"v1"'}, content=b"ok")
+
+    with HttpTransport(HttpConfig()) as transport:
+        transport._client.close()
+        transport._client = httpx.Client(transport=httpx.MockTransport(respond))
+        spec = RequestSpec("GET", source.endpoint.url)
+        first = transport.request(spec, source, StreamState(source.id))
+        state = StreamState(
+            source.id, etag='"v1"', request_identity=first.request_identity
+        )
+        transport.request(spec, source, state)
+        assert "if-none-match" not in observed[-2].headers
+        assert observed[-1].headers["if-none-match"] == '"v1"'
+        target = "/second"
+        second = transport.request(spec, source, state)
+        assert "if-none-match" not in observed[-2].headers
+        assert "if-none-match" not in observed[-1].headers
+        assert first.request_identity != second.request_identity

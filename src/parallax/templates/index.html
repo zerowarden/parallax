@@ -24,7 +24,7 @@
     <input type="hidden" name="view" value="{{ view }}">
     <input type="hidden" name="days" value="{{ days }}">
     <input type="search" name="q" value="{{ query }}" placeholder="Search headlines">
-    <select name="source" aria-label="Source">
+    <select name="source" aria-label="Appeared in source">
       <option value="">All sources</option>
       {% for option in sources %}
       <option value="{{ option.id }}" {{ 'selected' if option.id == source_id else '' }}>{{ option.label }}</option>
@@ -34,12 +34,13 @@
   </form>
 </header>
 <main>
+  <p class="meta">Latest wording across channels. Source filters select where an item appeared.</p>
   {% if browse.items %}
   <ol class="headlines">
     {% for item in browse.items %}
     <li>
       <div class="meta">
-        <span class="source">{{ item.source_name }}{% if item.duplicate_count > 0 %} (+{{ item.duplicate_count }}){% endif %}</span>
+        <span class="source">{% if item.source_role == 'appearance' %}Appeared in {% endif %}{{ item.source_name }}{% if item.duplicate_count > 0 %} (+{{ item.duplicate_count }}){% endif %}</span>
         <span>observed <time datetime="{{ item.first_seen_at }}" title="{{ item.first_seen_at }}">{{ item.first_seen_at | relative(now) }}</time></span>
       </div>
       <div class="headline">

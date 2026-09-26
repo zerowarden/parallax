@@ -12,7 +12,7 @@ from parallax.config import CatalogError, ResolvedConfig, load_catalog
 from parallax.feed import FeedOrder, build_headline_feed, build_headline_groups
 from parallax.parsing import parse_since
 from parallax.presentation import Presenter
-from parallax.runtime import Runtime
+from parallax.runtime import ArchiveRuntime, DiagnosticRuntime, Runtime
 from parallax.web import create_app
 
 app = typer.Typer(
@@ -55,6 +55,10 @@ def _runtime(config: Path) -> Runtime:
     return Runtime.build(config)
 
 
+def _archive(config: Path) -> ArchiveRuntime:
+    return ArchiveRuntime.build(config)
+
+
 def _load_catalog_or_exit(config: Path) -> ResolvedConfig:
     try:
         return load_catalog(config)
@@ -90,9 +94,7 @@ def list_sources(
     config: CONFIG_OPTION = Path("config/config.toml"),
 ) -> None:
     """Display configured source streams."""
-    with _runtime(config) as runtime:
-        logging.getLogger(__name__).info("operation=cli_sources")
-        Presenter().sources(runtime.registry.all())
+    Presenter().sources(_load_catalog_or_exit(config).sources)
 
 
 @app.command("fetch")
@@ -181,8 +183,7 @@ def show_headlines(
             "--limit",
             min=1,
             help=(
-                "Optional headlines per source. "
-                "Default: all stored in latest snapshot."
+                "Optional headlines per source. Default: all stored in latest snapshot."
             ),
         ),
     ] = None,
@@ -192,7 +193,7 @@ def show_headlines(
     """Display the latest stored snapshot for each source."""
     if source_id is not None and order != "observed":
         raise typer.BadParameter("--order is only valid for the global feed")
-    with _runtime(config) as runtime:
+    with _archive(config) as runtime:
         if source_id is not None:
             runtime.registry.get(source_id)
         logging.getLogger(__name__).info(
@@ -225,7 +226,7 @@ def serve_web(
     config: CONFIG_OPTION = Path("config/config.toml"),
 ) -> None:
     """Serve the browser reader over the stored headline archive."""
-    with _runtime(config) as runtime:
+    with _archive(config) as runtime:
         logging.getLogger("werkzeug").setLevel(logging.WARNING)
         application = create_app(runtime.storage, runtime.registry.enabled())
         typer.echo(f"Parallax web reader: http://{host}:{port}")
@@ -243,7 +244,7 @@ def diagnose_sources(
     config: CONFIG_OPTION = Path("config/config.toml"),
 ) -> None:
     """Diagnose source health without recording fetch results."""
-    with _runtime(config) as runtime:
+    with DiagnosticRuntime.build(config) as runtime:
         if source_id is not None:
             sources = [runtime.registry.get(source_id)]
         else:
@@ -264,7 +265,7 @@ def show_status(
     config: CONFIG_OPTION = Path("config/config.toml"),
 ) -> None:
     """Display scheduler state and recent collection outcomes."""
-    with _runtime(config) as runtime:
+    with _archive(config) as runtime:
         logging.getLogger(__name__).info("operation=cli_status")
         Presenter().status(
             runtime.storage.stream_states(enabled_only=True),
@@ -281,7 +282,7 @@ def show_fetch_runs(
     config: CONFIG_OPTION = Path("config/config.toml"),
 ) -> None:
     """Display fetch history. Status intentionally shows only the latest run."""
-    with _runtime(config) as runtime:
+    with _archive(config) as runtime:
         logging.getLogger(__name__).info(
             "operation=cli_runs limit=%s",
             limit,

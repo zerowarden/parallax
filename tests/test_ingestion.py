@@ -19,8 +19,8 @@ from parallax.adapters.execution import MAX_ADAPTER_STEPS
 from parallax.config import IngestionConfig, Source, ValidationConfig
 from parallax.domain import (
     HeadlineCandidate,
+    HistoryPage,
     HttpResponse,
-    IngestionSummary,
     ParsedBatch,
     RequestSpec,
     StreamState,
@@ -243,6 +243,7 @@ def test_batch_fetches_concurrently_and_commits_on_caller_thread(
         response_last_modified: str | None,
         next_run_at: datetime,
         observed_at: datetime,
+        request_identity: str | None = None,
     ):
         commits.append(threading.get_ident())
         return original_commit(
@@ -300,7 +301,7 @@ def test_batch_records_uncommitted_runs_when_interrupted(tmp_path: Path) -> None
 
     assert len(runs) == 2
     assert {run.status for run in runs} == {"failed"}
-    assert {run.error_type for run in runs} == {"InterruptedError"}
+    assert {run.error_type for run in runs} == {"KeyboardInterrupt"}
 
 
 def test_batch_rolls_back_interrupted_transaction_before_cleanup(
@@ -329,7 +330,7 @@ def test_batch_rolls_back_interrupted_transaction_before_cleanup(
     assert checkpoint == 0
     assert len(runs) == 2
     assert {run.status for run in runs} == {"failed"}
-    assert {run.error_type for run in runs} == {"InterruptedError"}
+    assert {run.error_type for run in runs} == {"KeyboardInterrupt"}
 
 
 def test_fetch_source_finalizes_run_when_commit_fails(tmp_path: Path) -> None:
@@ -427,50 +428,32 @@ def test_batch_finalizes_started_runs_when_submission_fails(
     assert runs[0].error_type == "OperationalError"
 
 
+@pytest.mark.parametrize("failure", [sqlite3.OperationalError, sqlite3.IntegrityError])
 def test_batch_records_commit_failure_without_relabelling(
     tmp_path: Path,
+    failure: type[sqlite3.Error],
 ) -> None:
     sources = _batch_sources()
     service, storage = _batch_service(tmp_path, sources, BatchTransport())
-    original_record_success = storage.record_success
 
-    def failing_commit(
-        source: Source,
-        fetch_run_id: int,
-        http_status: int | None,
-        batch: ValidatedBatch,
-        response_etag: str | None,
-        response_last_modified: str | None,
-        next_run_at: datetime,
-        observed_at: datetime,
-    ) -> IngestionSummary:
-        if source.id == "batch-one":
-            raise sqlite3.OperationalError("disk I/O error")
-        return original_record_success(
-            source,
-            fetch_run_id,
-            http_status,
-            batch,
-            response_etag,
-            response_last_modified,
-            next_run_at,
-            observed_at,
-        )
+    def failing_commit(*args: object, **kwargs: object) -> None:
+        with storage.transaction():
+            storage._connection.execute("DELETE FROM source_surfaces")
+            raise failure("database failure")
 
     storage.record_success = failing_commit  # type: ignore[method-assign]
-    result = service.fetch_sources(sources)
+    with pytest.raises(failure, match="database failure"):
+        service.fetch_sources(sources)
 
-    runs = {run.source_id: run for run in storage.latest_fetch_runs(enabled_only=False)}
+    runs = storage.latest_fetch_runs(enabled_only=False)
+    assert len(runs) == 2  # No replacement work is submitted after failure.
+    assert {run.status for run in runs} == {"failed"}
+    assert {run.error_type for run in runs} == {failure.__name__}
+    assert not storage._connection.in_transaction
+    assert storage._connection.execute(
+        "SELECT COUNT(*) FROM source_surfaces"
+    ).fetchone()[0] == len(sources)
     storage.close()
-
-    assert [summary.source_id for summary in result.summaries] == [
-        "batch-two",
-        "batch-three",
-    ]
-    assert [failure.source_id for failure in result.failures] == ["batch-one"]
-    assert [failure.error_type for failure in result.failures] == ["OperationalError"]
-    assert runs["batch-one"].status == "failed"
-    assert runs["batch-one"].error_type == "OperationalError"
 
 
 class NotModifiedTransport:
@@ -693,7 +676,9 @@ def test_stepped_fetch_drives_sequence_offline(tmp_path: Path):
     assert summary.item_count == 1
     assert len(rows) == 1
     assert rows[0].title == "Stepped headline"
-    assert rows[0].first_seen_at == (OBSERVED_AT + timedelta(minutes=1)).isoformat()
+    assert rows[0].first_seen_at == (OBSERVED_AT + timedelta(minutes=1)).isoformat(
+        timespec="microseconds"
+    )
     assert state.etag is None
 
 
@@ -749,21 +734,24 @@ class HistoryFixtureAdapter:
     ) -> tuple[RequestSpec, ...]:
         return (RequestSpec(method="GET", url="https://example.com/history"),)
 
-    def parse_history_responses(
+    def parse_history_page(
         self,
         source: Source,
-        responses: tuple[HttpResponse, ...],
+        response: HttpResponse,
         since: datetime,
-    ) -> ParsedBatch:
-        return ParsedBatch(
-            candidates=(
-                HeadlineCandidate(
-                    title="Backfilled headline",
-                    url="https://example.com/old",
-                    external_id="old",
-                    published_at=since,
-                ),
-            )
+    ) -> HistoryPage:
+        return HistoryPage(
+            ParsedBatch(
+                candidates=(
+                    HeadlineCandidate(
+                        title="Backfilled headline",
+                        url="https://example.com/old",
+                        external_id="old",
+                        published_at=since,
+                    ),
+                )
+            ),
+            exhausted=True,
         )
 
 
@@ -805,7 +793,7 @@ def test_history_fetch_records_without_snapshot(tmp_path: Path):
     assert {event.event_type for event in changes} == {"item_created"}
 
 
-def test_history_fetch_falls_back_when_unsupported(
+def test_history_fetch_reports_unsupported_without_refresh(
     fixtures_dir: Path,
     tmp_path: Path,
 ):
@@ -836,7 +824,208 @@ def test_history_fetch_falls_back_when_unsupported(
     state = storage.get_stream_state(source.id)
     storage.close()
 
-    assert summary.status == "success"
-    assert transport.requested == ["https://example.com/rss.xml"]
-    assert rows
-    assert state.last_success_at is not None
+    assert summary.status == "unsupported"
+    assert summary.history is not None
+    assert summary.history.status == "unsupported"
+    assert summary.history.pages_requested == 0
+    assert transport.requested == []
+    assert rows == []
+    assert state.last_success_at is None
+
+
+@pytest.mark.parametrize(
+    "budget,empty_page,expected_pages,expected_items,status,reason",
+    [
+        (3, 0, 2, 3, "truncated", "item_budget"),
+        (20, 0, 3, 6, "truncated", "page_budget"),
+        (20, 2, 2, 2, "exhausted", "upstream_exhausted"),
+    ],
+)
+def test_now_history_is_incremental_and_separate_from_live_cap(
+    tmp_path: Path,
+    budget: int,
+    empty_page: int,
+    expected_pages: int,
+    expected_items: int,
+    status: str,
+    reason: str,
+) -> None:
+    import json
+
+    source = make_source(
+        adapter="now_news",
+        max_items=1,
+        options={
+            "history_max_pages": 3,
+            "history_max_items": budget,
+            "history_page_size": 2,
+        },
+    )
+    requested: list[int] = []
+
+    class PageTransport:
+        def request(
+            self, spec: RequestSpec, source: Source, state: StreamState
+        ) -> HttpResponse:
+            page = int(spec.params["pageNo"])
+            requested.append(page)
+            assert spec.params["pageSize"] == "2"
+            entries = (
+                []
+                if page == empty_page
+                else [
+                    {
+                        "newsId": f"{page}-{i}",
+                        "title": f"Headline {page}-{i}",
+                        "publishDate": int(OBSERVED_AT.timestamp() * 1000),
+                    }
+                    for i in range(2)
+                ]
+            )
+            return HttpResponse(
+                200, spec.url, {}, json.dumps(entries).encode(), OBSERVED_AT
+            )
+
+    storage = Storage(tmp_path / "history.db")
+    storage.initialize()
+    storage.sync_sources([source])
+    service = IngestionService(
+        storage,
+        PageTransport(),
+        AdapterRegistry(),
+        BatchValidator(ValidationConfig()),
+        IngestionConfig(),
+    )
+    since = OBSERVED_AT - timedelta(days=1)
+    summary = service.fetch_source(source, since=since)
+    assert requested == list(range(1, expected_pages + 1))
+    assert summary.item_count == expected_items
+    assert summary.history is not None
+    assert summary.history.status == status
+    assert summary.history.stop_reason == reason
+    assert summary.history.requested_since == since
+    assert summary.history.observed_since == OBSERVED_AT
+    assert summary.history.observed_until == OBSERVED_AT
+    assert summary.history.items_accepted == expected_items
+    assert storage.latest_snapshot_headlines() == []
+    assert storage.get_stream_state(source.id).last_success_at is None
+    stored = storage.recent_fetch_runs()[0].history_json
+    assert (
+        stored is not None and json.loads(stored)["pages_requested"] == expected_pages
+    )
+    storage.close()
+
+
+def test_history_old_ranked_page_does_not_imply_exhaustion(tmp_path: Path) -> None:
+    import json
+
+    source = make_source(
+        adapter="now_news", max_items=1, options={"history_max_pages": 2}
+    )
+    pages: list[int] = []
+
+    class RankedTransport:
+        def request(
+            self, spec: RequestSpec, source: Source, state: StreamState
+        ) -> HttpResponse:
+            page = int(spec.params["pageNo"])
+            pages.append(page)
+            published = OBSERVED_AT - timedelta(days=10) if page == 1 else OBSERVED_AT
+            entries = [
+                {
+                    "newsId": str(page),
+                    "title": "Headline",
+                    "publishDate": int(published.timestamp() * 1000),
+                }
+            ]
+            return HttpResponse(
+                200, spec.url, {}, json.dumps(entries).encode(), OBSERVED_AT
+            )
+
+    storage = Storage(tmp_path / "history.db")
+    storage.initialize()
+    storage.sync_sources([source])
+    service = IngestionService(
+        storage,
+        RankedTransport(),
+        AdapterRegistry(),
+        BatchValidator(ValidationConfig()),
+        IngestionConfig(),
+    )
+    result = service.fetch_source(source, since=OBSERVED_AT - timedelta(days=1))
+    assert pages == [1, 2]
+    assert result.item_count == 1
+    assert result.history is not None and result.history.status == "truncated"
+    storage.close()
+
+
+def test_batch_finalizes_run_when_initial_executor_submission_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sources = _batch_sources()
+    service, storage = _batch_service(tmp_path, sources, BatchTransport())
+
+    def cannot_submit(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("executor cannot submit")
+
+    monkeypatch.setattr("parallax.ingest.ThreadPoolExecutor.submit", cannot_submit)
+    with pytest.raises(RuntimeError, match="executor cannot submit"):
+        service.fetch_sources(sources)
+    runs = storage.recent_fetch_runs()
+    assert len(runs) == 1
+    assert runs[0].status == "failed"
+    assert runs[0].error_type == "RuntimeError"
+    storage.close()
+
+
+def test_effective_request_identity_is_persisted_across_catalog_changes(
+    tmp_path: Path,
+) -> None:
+    import httpx
+
+    from parallax.config import HttpConfig
+    from parallax.transport import HttpTransport
+
+    source = make_source(adapter="batch")
+    requested: list[httpx.Request] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        requested.append(request)
+        if request.url.path == "/changed":
+            return httpx.Response(200, content=b"{}")
+        if "if-none-match" in request.headers:
+            return httpx.Response(304)
+        return httpx.Response(200, headers={"etag": '"original"'}, content=b"{}")
+
+    storage = Storage(tmp_path / "archive.db")
+    storage.initialize()
+    storage.sync_sources([source])
+    with HttpTransport(HttpConfig()) as transport:
+        transport._client.close()
+        transport._client = httpx.Client(transport=httpx.MockTransport(respond))
+        service = IngestionService(
+            storage,
+            transport,
+            FixedAdapterLookup({"batch": BatchAdapter()}),
+            BatchValidator(ValidationConfig()),
+            IngestionConfig(),
+        )
+        service.fetch_source(source)
+        original_state = storage.get_stream_state(source.id)
+        assert original_state.request_identity is not None
+        assert service.fetch_source(source).status == "not_modified"
+        assert storage.get_stream_state(source.id).etag == '"original"'
+        changed = source.model_copy(
+            update={
+                "endpoint": source.endpoint.model_copy(
+                    update={"url": "https://example.test/changed"}
+                )
+            }
+        )
+        storage.sync_sources([changed])
+        assert service.fetch_source(changed).status == "success"
+        state = storage.get_stream_state(source.id)
+        assert state.etag is None and state.last_modified is None
+        assert state.request_identity != original_state.request_identity
+        assert "if-none-match" not in requested[-1].headers
+    storage.close()

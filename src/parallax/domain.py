@@ -28,6 +28,7 @@ StreamKind = Literal[
 ]
 BrowseSurface = Literal["news", "discover"]
 BrowseView = Literal["all", "news", "discover"]
+HistoryStatus = Literal["truncated", "exhausted", "unsupported"]
 ProviderKind = Literal[
     "publisher",
     "platform",
@@ -105,6 +106,7 @@ class HttpResponse:
     content: bytes
     observed_at: datetime
     cookies: Mapping[str, str] = field(default_factory=dict)
+    request_identity: str | None = None
 
     def __post_init__(self) -> None:
         if self.observed_at.tzinfo is None:
@@ -136,6 +138,24 @@ class ValidatedBatch:
 
 
 @dataclass(frozen=True, slots=True)
+class HistoryPage:
+    batch: ParsedBatch
+    exhausted: bool
+
+
+@dataclass(frozen=True, slots=True)
+class HistoryOutcome:
+    requested_since: datetime
+    requested_until: datetime
+    observed_since: datetime | None
+    observed_until: datetime | None
+    pages_requested: int
+    items_accepted: int
+    status: HistoryStatus
+    stop_reason: str
+
+
+@dataclass(frozen=True, slots=True)
 class StreamState:
     source_id: str
     next_run_at: datetime | None = None
@@ -144,6 +164,7 @@ class StreamState:
     consecutive_failures: int = 0
     etag: str | None = None
     last_modified: str | None = None
+    request_identity: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,6 +176,7 @@ class IngestionSummary:
     new_item_count: int = 0
     new_version_count: int = 0
     rejected_count: int = 0
+    history: HistoryOutcome | None = None
 
 
 @dataclass(frozen=True, slots=True)

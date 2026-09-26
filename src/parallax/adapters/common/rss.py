@@ -3,6 +3,9 @@ from __future__ import annotations
 from collections.abc import Callable
 from xml.etree import ElementTree
 
+from defusedxml import ElementTree as SafeElementTree
+from defusedxml.common import DefusedXmlException
+
 from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
@@ -61,9 +64,12 @@ def parse_feed_candidates(
 
     Shared by the single-feed adapter and adapters that combine several feeds.
     """
-    _reject_unsafe_xml(content)
     try:
-        root = ElementTree.fromstring(content)
+        root = SafeElementTree.fromstring(
+            content, forbid_dtd=True, forbid_entities=True, forbid_external=True
+        )
+    except DefusedXmlException as exc:
+        raise ValueError("Feed contains a DTD or entity declaration") from exc
     except ElementTree.ParseError as exc:
         raise ValueError(f"Invalid {label}: {exc}") from exc
 
@@ -132,12 +138,6 @@ def _parse_atom(
             )
         )
     return results
-
-
-def _reject_unsafe_xml(content: bytes) -> None:
-    probe = content[:65536].upper()
-    if b"<!DOCTYPE" in probe or b"<!ENTITY" in probe:
-        raise ValueError("Feed contains a DTD or entity declaration")
 
 
 def _children(

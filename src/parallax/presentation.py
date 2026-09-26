@@ -131,6 +131,7 @@ class Presenter:
         summaries: Iterable[IngestionSummary],
         failures: Iterable[IngestionFailure] = (),
     ) -> None:
+        summaries = tuple(summaries)
         table = Table(title="Fetch results")
         table.add_column("Source")
         table.add_column("Status")
@@ -153,6 +154,29 @@ class Presenter:
                 _literal(row.error or ""),
             )
         self.console.print(table)
+
+        for summary in summaries:
+            history = summary.history
+            if history is None:
+                continue
+            observed = (
+                f"{history.observed_since.isoformat()} to "
+                f"{history.observed_until.isoformat()}"
+                if history.observed_since is not None
+                and history.observed_until is not None
+                else "none"
+            )
+            self.console.print(
+                _literal(
+                    f"{summary.source_id}: history {history.status} "
+                    f"({history.stop_reason}); "
+                    f"requested {history.requested_since.isoformat()} to "
+                    f"{history.requested_until.isoformat()}; "
+                    f"observed publications {observed}; "
+                    f"pages {history.pages_requested}; "
+                    f"accepted {history.items_accepted}. Coverage is best effort."
+                )
+            )
 
     def headlines(self, rows: Iterable[HeadlineRow]) -> None:
         grouped: dict[str, list[HeadlineRow]] = defaultdict(list)

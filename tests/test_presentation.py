@@ -139,3 +139,39 @@ def test_fetch_results_render_summary_counts_and_failure_details() -> None:
     assert "success" in output
     assert "failed" in output
     assert "ValueError: schema drift" in output
+
+
+def test_fetch_results_expose_history_coverage_and_unsupported_capability() -> None:
+    from datetime import UTC, datetime
+
+    from parallax.domain import HistoryOutcome
+
+    since = datetime(2026, 9, 1, tzinfo=UTC)
+    until = datetime(2026, 9, 2, tzinfo=UTC)
+    console = Console(record=True, width=300)
+    summaries = [
+        IngestionSummary(
+            "now-news",
+            1,
+            "history",
+            item_count=2,
+            history=HistoryOutcome(
+                since, until, since, since, 1, 2, "truncated", "item_budget"
+            ),
+        ),
+        IngestionSummary(
+            "rss",
+            2,
+            "unsupported",
+            history=HistoryOutcome(
+                since, until, None, None, 0, 0, "unsupported", "unsupported"
+            ),
+        ),
+    ]
+    Presenter(console).fetch_results(iter(summaries))
+    output = console.export_text()
+    assert "history truncated (item_budget)" in output
+    assert "pages 1; accepted 2" in output
+    assert "requested 2026-09-01T00:00:00+00:00 to 2026-09-02T00:00:00+00:00" in output
+    assert "history unsupported (unsupported)" in output
+    assert "observed publications none; pages 0; accepted 0" in output

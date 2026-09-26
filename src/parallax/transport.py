@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import threading
 import time
@@ -83,7 +85,6 @@ class HttpTransport(AbstractContextManager["HttpTransport"]):
         headers = dict(spec.headers)
         headers.update(source.headers)
         params = dict(spec.params)
-        self._apply_conditional_headers(headers, state)
         self._apply_auth(headers, params, source.auth)
 
         url = httpx.URL(spec.url)
@@ -109,6 +110,14 @@ class HttpTransport(AbstractContextManager["HttpTransport"]):
         while True:
             attempt += 1
             _apply_cookie_policy(request, declared_cookie)
+            # Redirect requests wrap the original bytes in an httpx stream.
+            request.read()
+            request_identity = _request_identity(request, source)
+            if state.request_identity == request_identity:
+                conditional: dict[str, str] = {}
+                self._apply_conditional_headers(conditional, state)
+                for name, value in conditional.items():
+                    request.headers.setdefault(name, value)
             try:
                 response, host_semaphore = self._send_once(request)
             except _TRANSIENT_ERRORS as exc:
@@ -137,6 +146,10 @@ class HttpTransport(AbstractContextManager["HttpTransport"]):
                         _safe_url(str(request.url)),
                         _safe_url(str(next_request.url)),
                     )
+                    # Validators describe the previous target. Re-evaluate
+                    # ownership against the effective redirected request.
+                    next_request.headers.pop("if-none-match", None)
+                    next_request.headers.pop("if-modified-since", None)
                     request = next_request
                     redirect_count += 1
                     attempt = 0
@@ -164,6 +177,7 @@ class HttpTransport(AbstractContextManager["HttpTransport"]):
                     content=content,
                     observed_at=observed_at,
                     cookies=dict(response.cookies),
+                    request_identity=request_identity,
                 )
             finally:
                 try:
@@ -313,6 +327,30 @@ def _safe_url(url: str) -> str:
     if split.port is not None:
         netloc = f"{netloc}:{split.port}"
     return split._replace(netloc=netloc, query="", fragment="").geturl()
+
+
+def _request_identity(request: httpx.Request, source: Source) -> str:
+    """Fingerprint the effective representation without persisting credentials.
+
+    Includes auth values, declared cookies, client defaults, parameters, body,
+    and parser selection settings. Conditional headers do not select content.
+    """
+    representation = {
+        "method": request.method,
+        "url": str(request.url),
+        "headers": sorted(
+            (name, value)
+            for name, value in request.headers.multi_items()
+            if name not in {"if-none-match", "if-modified-since"}
+        ),
+        "content": request.content.hex(),
+        "adapter": source.endpoint.adapter,
+        "options": dict(source.endpoint.options),
+        "max_items": source.max_items,
+    }
+    return hashlib.sha256(
+        json.dumps(representation, sort_keys=True).encode()
+    ).hexdigest()
 
 
 def _same_safe_authority(current: httpx.URL, target: httpx.URL) -> bool:

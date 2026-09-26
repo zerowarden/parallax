@@ -32,18 +32,7 @@ def load_catalog(
     next to the root file. File order and location carry no semantic meaning.
     """
     root_path = root_path.expanduser().resolve()
-    raw = _read_toml(root_path)
-    version = raw.get("schema_version")
-    if version != SCHEMA_VERSION:
-        raise CatalogError(
-            f"Unsupported schema_version {version!r} in {root_path}; "
-            f"expected {SCHEMA_VERSION}"
-        )
-    try:
-        root = CatalogRoot.model_validate(raw)
-    except ValidationError as exc:
-        raise CatalogError(f"Invalid catalog root {root_path}:\n{exc}") from exc
-
+    root = _load_root(root_path)
     directory = root_path.parent / DEFAULT_SOURCES_DIRNAME
     resolved_sources = _resolve_sources(_load_sources(directory))
     _validate_provider_metadata(resolved_sources)
@@ -56,6 +45,28 @@ def load_catalog(
         validation=root.validation,
         sources=resolved_sources,
     )
+
+
+def load_archive_config(root_path: Path) -> AppConfig:
+    """Resolve archive paths without loading source definitions or adapters."""
+    root_path = root_path.expanduser().resolve()
+    return _resolve_app_paths(_load_root(root_path).app, root_path.parent)
+
+
+def _load_root(root_path: Path) -> CatalogRoot:
+    raw = _read_toml(root_path)
+    version = raw.get("schema_version")
+    if version != SCHEMA_VERSION:
+        raise CatalogError(
+            f"Unsupported schema_version {version!r} in {root_path}; "
+            f"expected {SCHEMA_VERSION}"
+        )
+    try:
+        root = CatalogRoot.model_validate(raw)
+    except ValidationError as exc:
+        raise CatalogError(f"Invalid catalog root {root_path}:\n{exc}") from exc
+
+    return root
 
 
 def _load_sources(directory: Path) -> tuple[tuple[str, SourceDefinition], ...]:

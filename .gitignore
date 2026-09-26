@@ -6,6 +6,6 @@ data/*.db
 data/*.db-*
 data/*.log
 .coverage
-.ruff
+.ruff_cache/
 .agentq.toml
 AGENTS.md

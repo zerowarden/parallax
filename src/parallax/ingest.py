@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import sqlite3
 from collections.abc import Sequence
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
@@ -15,13 +16,16 @@ from parallax.adapters.base import (
     SourceAdapter,
     SteppedAdapter,
 )
+from parallax.adapters.common.options import DEFAULT_HISTORY_MAX_ITEMS, option_int
 from parallax.adapters.execution import (
     raise_for_status,
     run_adapter_refresh,
 )
 from parallax.config import IngestionConfig, Source
 from parallax.domain import (
-    HttpResponse,
+    HeadlineCandidate,
+    HistoryOutcome,
+    HistoryStatus,
     IngestionBatchResult,
     IngestionFailure,
     IngestionSummary,
@@ -30,6 +34,7 @@ from parallax.domain import (
     StreamState,
     ValidatedBatch,
 )
+from parallax.identity import identity_keys
 from parallax.storage import Storage
 from parallax.transport import Transport
 from parallax.validation import BatchValidator
@@ -45,17 +50,20 @@ class _PreparedSuccess:
     etag: str | None
     last_modified: str | None
     observed_at: datetime
+    request_identity: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class _PreparedNotModified:
     etag: str | None
     last_modified: str | None
+    request_identity: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class _PreparedHistory:
     batch: ValidatedBatch
+    outcome: HistoryOutcome
 
 
 _PreparedOutcome = _PreparedSuccess | _PreparedNotModified | _PreparedHistory
@@ -149,10 +157,16 @@ class IngestionService:
                             summary = self._commit_prepared(
                                 source, run_id, attempted_at, prepared
                             )
+                        except sqlite3.Error:
+                            # A storage failure aborts the batch; it is not an
+                            # invalid source payload that another fetch can fix.
+                            raise
                         except Exception as error:
-                            self._record_run_failure(
+                            recorded = self._record_run_failure(
                                 source, run_id, attempted_at, error
                             )
+                            if not recorded:
+                                raise
                             failures[index] = IngestionFailure(
                                 source.id, type(error).__name__, _error_message(error)
                             )
@@ -192,20 +206,18 @@ class IngestionService:
         since: datetime | None,
     ) -> _PreparedOutcome:
         adapter = self._adapters.get(source.endpoint.adapter)
-        if since is not None and isinstance(adapter, HistoricalAdapter):
-            requests = adapter.build_history_requests(source, since)
-            if requests:
-                return self._prepare_history(source, adapter, requests, since)
-            LOGGER.info(
-                "operation=history_empty source_id=%s adapter=%s",
-                source.id,
-                source.endpoint.adapter,
-            )
-        elif since is not None:
-            LOGGER.info(
-                "operation=history_unsupported source_id=%s adapter=%s",
-                source.id,
-                source.endpoint.adapter,
+        if since is not None:
+            if since.tzinfo is None:
+                raise ValueError("history timestamps must be timezone-aware")
+            until = datetime.now(UTC)
+            if isinstance(adapter, HistoricalAdapter):
+                requests = adapter.build_history_requests(source, since)
+                return self._prepare_history(source, adapter, requests, since, until)
+            return _PreparedHistory(
+                ValidatedBatch((), 0),
+                HistoryOutcome(
+                    since, until, None, None, 0, 0, "unsupported", "unsupported"
+                ),
             )
         if isinstance(adapter, (MultiRequestAdapter, SteppedAdapter)):
             return self._prepare_combined(source, adapter)
@@ -218,7 +230,9 @@ class IngestionService:
         response = refresh.responses[0]
         if refresh.not_modified:
             return _PreparedNotModified(
-                response.headers.get("etag"), response.headers.get("last-modified")
+                response.headers.get("etag"),
+                response.headers.get("last-modified"),
+                response.request_identity,
             )
         assert refresh.batch is not None
         return _PreparedSuccess(
@@ -227,6 +241,7 @@ class IngestionService:
             response.headers.get("etag"),
             response.headers.get("last-modified"),
             refresh.observed_at,
+            response.request_identity,
         )
 
     def _prepare_combined(
@@ -255,22 +270,65 @@ class IngestionService:
         adapter: HistoricalAdapter,
         requests: tuple[RequestSpec, ...],
         since: datetime,
+        until: datetime,
     ) -> _PreparedHistory:
         state = StreamState(source_id=source.id)
-        responses: list[HttpResponse] = []
+        budget = option_int(source, "history_max_items", DEFAULT_HISTORY_MAX_ITEMS)
+        accepted: dict[str, HeadlineCandidate] = {}
+        warnings: list[str] = []
+        rejected = 0
+        pages = 0
+        reason = "page_budget"
+        status: HistoryStatus = "truncated"
         for request in requests:
             response = self._transport.request(request, source, state)
+            pages += 1
             raise_for_status(response)
-            responses.append(response)
-
-        parsed = adapter.parse_history_responses(source, tuple(responses), since)
-        LOGGER.info(
-            "operation=history_batch source_id=%s responses=%s candidates=%s",
-            source.id,
-            len(responses),
-            len(parsed.candidates),
+            page = adapter.parse_history_page(source, response, since)
+            validated = self._validate_history(source, page.batch)
+            rejected += validated.rejected_count
+            warnings.extend(validated.warnings)
+            for candidate in validated.candidates:
+                if (
+                    candidate.published_at is None
+                    or not since <= candidate.published_at <= until
+                ):
+                    continue
+                key, _ = identity_keys(candidate, provider_id=source.provider_id)
+                accepted.setdefault(key, candidate)
+                if len(accepted) == budget:
+                    break
+            if len(accepted) == budget:
+                reason = "item_budget"
+                break
+            if page.exhausted:
+                reason = "upstream_exhausted"
+                status = "exhausted"
+                break
+        candidates = tuple(accepted.values())
+        published = [c.published_at for c in candidates if c.published_at is not None]
+        outcome = HistoryOutcome(
+            requested_since=since,
+            requested_until=until,
+            observed_since=min(published, default=None),
+            observed_until=max(published, default=None),
+            pages_requested=pages,
+            items_accepted=len(candidates),
+            status=status,
+            stop_reason=reason,
         )
-        return _PreparedHistory(self._validate_history(source, parsed))
+        LOGGER.info(
+            "operation=history_batch source_id=%s pages=%s accepted=%s "
+            "status=%s reason=%s",
+            source.id,
+            pages,
+            len(candidates),
+            outcome.status,
+            reason,
+        )
+        return _PreparedHistory(
+            ValidatedBatch(candidates, rejected, tuple(warnings)), outcome
+        )
 
     def _commit_prepared(
         self,
@@ -286,9 +344,12 @@ class IngestionService:
                 prepared.etag,
                 prepared.last_modified,
                 now + timedelta(seconds=source.interval_seconds),
+                request_identity=prepared.request_identity,
             )
         if isinstance(prepared, _PreparedHistory):
-            return self._storage.record_history(source, run_id, prepared.batch)
+            return self._storage.record_history(
+                source, run_id, prepared.batch, prepared.outcome
+            )
         return self._storage.record_success(
             source=source,
             fetch_run_id=run_id,
@@ -298,6 +359,7 @@ class IngestionService:
             response_last_modified=prepared.last_modified,
             next_run_at=now + timedelta(seconds=source.interval_seconds),
             observed_at=prepared.observed_at,
+            request_identity=prepared.request_identity,
         )
 
     def _validate(self, source: Source, parsed: ParsedBatch) -> ValidatedBatch:
@@ -322,21 +384,16 @@ class IngestionService:
         run_id: int,
         attempted_at: datetime,
         error: BaseException,
-    ) -> None:
+    ) -> bool:
         """Finalize one failed run without replacing the caller's error.
 
         Recording is best effort: when storage cannot take the failure (for
         example because the database is unavailable), the original error still
-        propagates to the caller. Non-``Exception`` interruptions keep their
-        category as ``InterruptedError`` because they carry no failure detail.
+        propagates to the caller, including interruptions.
         """
-        failure: Exception = (
-            error
-            if isinstance(error, Exception)
-            else InterruptedError("Ingestion interrupted")
-        )
-        message = _error_message(failure)
+        message = _error_message(error)
         next_run_at = attempted_at
+        recorded = False
         try:
             state = self._storage.get_stream_state(source.id)
             delay = min(
@@ -346,14 +403,15 @@ class IngestionService:
             )
             next_run_at = attempted_at + timedelta(seconds=delay)
             status = (
-                failure.response.status_code
-                if isinstance(failure, httpx.HTTPStatusError)
+                error.response.status_code
+                if isinstance(error, httpx.HTTPStatusError)
                 else None
             )
             self._storage.record_failure(
-                source.id, run_id, failure, next_run_at, status, message
+                source.id, run_id, error, next_run_at, status, message
             )
-        except Exception as storage_error:
+            recorded = True
+        except BaseException as storage_error:
             LOGGER.error(
                 "operation=fetch_failure_record_failed source_id=%s "
                 "fetch_run_id=%s error_type=%s error=%s",
@@ -362,13 +420,14 @@ class IngestionService:
                 type(storage_error).__name__,
                 _error_message(storage_error),
             )
-        self._log_failure(source.id, run_id, failure, next_run_at, message)
+        self._log_failure(source.id, run_id, error, next_run_at, message)
+        return recorded
 
     @staticmethod
     def _log_failure(
         source_id: str,
         run_id: int,
-        error: Exception,
+        error: BaseException,
         next_run_at: datetime,
         message: str | None = None,
     ) -> None:
@@ -393,5 +452,5 @@ class IngestionService:
         )
 
 
-def _error_message(error: Exception) -> str:
-    return " ".join(str(error).split())[:ERROR_MESSAGE_LIMIT]
+def _error_message(error: BaseException) -> str:
+    return " ".join(str(error).split())[:ERROR_MESSAGE_LIMIT] or type(error).__name__

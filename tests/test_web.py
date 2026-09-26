@@ -747,3 +747,36 @@ def test_source_dropdown_labels_options_by_provider(storage: Storage) -> None:
 
     assert ">Fixture Provider — Alpha</option>" in html
     assert ">Fixture Provider — Beta</option>" in html
+
+
+def test_source_filter_labels_appearance_of_canonical_title(storage: Storage) -> None:
+    first = _source("channel-a", "Channel A")
+    second = _source("channel-b", "Channel B")
+    storage.sync_sources([first, second])
+    _record(
+        storage,
+        first,
+        [_candidate("Wording from A", "https://example.test/story")],
+        NOW - timedelta(seconds=2),
+    )
+    _record(
+        storage,
+        second,
+        [_candidate("Wording from B", "https://example.test/story")],
+        NOW - timedelta(seconds=1),
+    )
+    html = _html(_client(storage, [first, second]), "/?source=channel-a")
+    assert _titles(html) == ["Wording from B"]
+    assert "Appeared in Fixture Provider — Channel A" in html
+    assert "Latest wording across channels" in html
+    page = browse_items(
+        storage,
+        view="news",
+        since=NOW - timedelta(days=1),
+        until=NOW,
+        source_id=first.id,
+    )
+    assert page.items[0].source_role == "appearance"
+    assert [
+        row.title for row in storage.latest_snapshot_headlines(source_id=first.id)
+    ] == ["Wording from A"]

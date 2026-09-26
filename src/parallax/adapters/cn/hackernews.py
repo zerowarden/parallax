@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from selectolax.parser import HTMLParser, Node
 
 from parallax.adapters.common.http import JSON_ACCEPT, html_request
+from parallax.adapters.common.options import DEFAULT_HISTORY_MAX_ITEMS, option_int
 from parallax.adapters.common.parsing import (
     decode_html,
     decode_json_object,
@@ -15,6 +16,7 @@ from parallax.adapters.common.parsing import (
 from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
+    HistoryPage,
     HttpResponse,
     ParsedBatch,
     RequestSpec,
@@ -37,8 +39,8 @@ class HackerNewsHotAdapter:
     without a score yet keep no ``points`` metric. HN exposes submission times
     as naive UTC timestamps.
 
-    History uses HN's public search API, which accepts a Unix-time lower bound;
-    the window is therefore exact rather than paginated.
+    History uses one bounded page of HN's public search API. Its lower bound
+    filters publications but does not guarantee coverage of the full window.
     """
 
     def build_request(self, source: Source) -> RequestSpec:
@@ -49,7 +51,10 @@ class HackerNewsHotAdapter:
         source: Source,
         since: datetime,
     ) -> tuple[RequestSpec, ...]:
-        hits = min(source.max_items, MAX_SEARCH_HITS)
+        hits = min(
+            option_int(source, "history_max_items", DEFAULT_HISTORY_MAX_ITEMS),
+            MAX_SEARCH_HITS,
+        )
         return (
             RequestSpec(
                 method="GET",
@@ -63,21 +68,20 @@ class HackerNewsHotAdapter:
             ),
         )
 
-    def parse_history_responses(
+    def parse_history_page(
         self,
         source: Source,
-        responses: tuple[HttpResponse, ...],
+        response: HttpResponse,
         since: datetime,
-    ) -> ParsedBatch:
+    ) -> HistoryPage:
         payload = decode_json_object(
-            responses[0].content,
+            response.content,
             label="Hacker News search",
         )
         hits = require_list(
             payload.get("hits"),
             "Hacker News search response does not contain hits",
         )
-        max_items = source.max_items
         candidates: list[HeadlineCandidate] = []
         for hit in hits:
             if not isinstance(hit, dict):
@@ -91,6 +95,9 @@ class HackerNewsHotAdapter:
             if isinstance(points, int):
                 metrics["points"] = points
             raw_published = text(hit.get("created_at_i"))
+            published = _parse_hn_timestamp(raw_published)
+            if published is None or published < since:
+                continue
             candidates.append(
                 HeadlineCandidate(
                     title=title,
@@ -99,14 +106,15 @@ class HackerNewsHotAdapter:
                         or ITEM_URL_TEMPLATE.format(item_id=item_id)
                     ),
                     external_id=item_id,
-                    published_at=_parse_hn_timestamp(raw_published),
+                    published_at=published,
                     raw_published_at=raw_published or None,
                     metrics=metrics,
                 )
             )
-            if len(candidates) >= max_items:
-                break
-        return ParsedBatch(candidates=tuple(candidates))
+        return HistoryPage(
+            ParsedBatch(candidates=tuple(candidates)),
+            exhausted=not hits or payload.get("nbPages") == 1,
+        )
 
     def parse(self, source: Source, response: HttpResponse) -> ParsedBatch:
         tree = HTMLParser(decode_html(response.content, label="Hacker News"))

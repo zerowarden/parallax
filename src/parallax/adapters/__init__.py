@@ -51,6 +51,7 @@ from parallax.adapters.cn.weibo import WeiboHotAdapter
 from parallax.adapters.cn.xueqiu import XueqiuHotstockAdapter
 from parallax.adapters.cn.zaobao import ZaobaoRealtimeAdapter
 from parallax.adapters.cn.zhihu import ZhihuHotAdapter
+from parallax.adapters.common.options import option_int
 from parallax.adapters.common.rss import RssAdapter
 from parallax.adapters.hk.am730 import Am730NewsAdapter
 from parallax.adapters.hk.hk01 import Hk01LatestAdapter
@@ -65,7 +66,10 @@ from parallax.adapters.hk.wenweipo import WenweipoNewsAdapter
 from parallax.config import Source
 
 ADAPTER_OPTIONS = {
-    "now_news": frozenset({"history_max_pages"}),
+    "now_news": frozenset(
+        {"history_max_pages", "history_max_items", "history_page_size"}
+    ),
+    "hackernews_hot": frozenset({"history_max_items"}),
 }
 
 
@@ -149,3 +153,6 @@ class AdapterRegistry:
             raise ValueError(
                 f"Unknown options for adapter {source.endpoint.adapter!r}: {joined}"
             )
+        for key in allowed:
+            if key in source.endpoint.options:
+                option_int(source, key, 1)
