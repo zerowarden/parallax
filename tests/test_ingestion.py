@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 import threading
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
@@ -19,6 +20,7 @@ from parallax.config import IngestionConfig, Source, ValidationConfig
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
+    IngestionSummary,
     ParsedBatch,
     RequestSpec,
     StreamState,
@@ -299,6 +301,176 @@ def test_batch_records_uncommitted_runs_when_interrupted(tmp_path: Path) -> None
     assert len(runs) == 2
     assert {run.status for run in runs} == {"failed"}
     assert {run.error_type for run in runs} == {"InterruptedError"}
+
+
+def test_batch_rolls_back_interrupted_transaction_before_cleanup(
+    tmp_path: Path,
+) -> None:
+    sources = _batch_sources()
+    service, storage = _batch_service(tmp_path, sources, BatchTransport())
+
+    def interrupted(*args: object, **kwargs: object) -> None:
+        with storage.transaction():
+            storage._connection.execute("""
+                INSERT INTO consumer_checkpoints(consumer_name, last_seq, updated_at)
+                VALUES ('interrupted', 1, '2026-01-01T00:00:00+00:00')
+                """)
+            raise KeyboardInterrupt
+
+    storage.record_success = interrupted  # type: ignore[method-assign]
+
+    with pytest.raises(KeyboardInterrupt):
+        service.fetch_sources(sources)
+
+    runs = storage.latest_fetch_runs(enabled_only=False)
+    checkpoint = storage.get_consumer_checkpoint("interrupted")
+    storage.close()
+
+    assert checkpoint == 0
+    assert len(runs) == 2
+    assert {run.status for run in runs} == {"failed"}
+    assert {run.error_type for run in runs} == {"InterruptedError"}
+
+
+def test_fetch_source_finalizes_run_when_commit_fails(tmp_path: Path) -> None:
+    source = make_source(
+        id="batch-one", adapter="batch", url="https://example.test/batch-one"
+    )
+    storage = Storage(tmp_path / "parallax.db")
+    storage.initialize()
+    storage.sync_sources([source])
+    service = IngestionService(
+        storage=storage,
+        transport=MappingTransport({source.endpoint.url: b"{}"}),
+        adapters=FixedAdapterLookup({"batch": BatchAdapter()}),
+        validator=BatchValidator(ValidationConfig()),
+        ingestion_config=IngestionConfig(),
+    )
+
+    def failing_commit(*args: object, **kwargs: object) -> None:
+        raise sqlite3.OperationalError("disk I/O error")
+
+    storage.record_success = failing_commit  # type: ignore[method-assign]
+
+    with pytest.raises(sqlite3.OperationalError, match="disk I/O error"):
+        service.fetch_source(source)
+
+    runs = storage.latest_fetch_runs(enabled_only=False)
+    storage.close()
+
+    assert runs[0].status == "failed"
+    assert runs[0].error_type == "OperationalError"
+    assert runs[0].error_message == "disk I/O error"
+
+
+def test_fetch_source_keeps_original_error_when_recording_fails(
+    tmp_path: Path,
+) -> None:
+    source = make_source(
+        id="failing-fixture", adapter="failing", url="https://example.com/failing"
+    )
+    storage = Storage(tmp_path / "parallax.db")
+    storage.initialize()
+    storage.sync_sources([source])
+    service = IngestionService(
+        storage=storage,
+        transport=MappingTransport({source.endpoint.url: b"{}"}),
+        adapters=FixedAdapterLookup({"failing": FailingAdapter()}),
+        validator=BatchValidator(ValidationConfig()),
+        ingestion_config=IngestionConfig(),
+    )
+
+    def failing_record(*args: object, **kwargs: object) -> None:
+        raise sqlite3.OperationalError("database is gone")
+
+    storage.record_failure = failing_record  # type: ignore[method-assign]
+
+    with pytest.raises(ValueError, match="schema drift"):
+        service.fetch_source(source)
+
+    storage.close()
+
+
+def test_batch_finalizes_started_runs_when_submission_fails(
+    tmp_path: Path,
+) -> None:
+    sources = [
+        make_source(
+            id=f"submit-{index}",
+            adapter="batch",
+            url=f"https://example.test/submit-{index}",
+        )
+        for index in range(3)
+    ]
+    service, storage = _batch_service(tmp_path, sources, BatchTransport())
+    original_start = storage.start_fetch_run
+    submissions = 0
+
+    def failing_start(source_id: str) -> int:
+        nonlocal submissions
+        submissions += 1
+        if submissions == 2:
+            raise sqlite3.OperationalError("database is locked")
+        return original_start(source_id)
+
+    storage.start_fetch_run = failing_start  # type: ignore[method-assign]
+
+    with pytest.raises(sqlite3.OperationalError, match="database is locked"):
+        service.fetch_sources(sources)
+
+    runs = storage.latest_fetch_runs(enabled_only=False)
+    storage.close()
+
+    assert submissions == 2
+    assert len(runs) == 1
+    assert runs[0].status == "failed"
+    assert runs[0].error_type == "OperationalError"
+
+
+def test_batch_records_commit_failure_without_relabelling(
+    tmp_path: Path,
+) -> None:
+    sources = _batch_sources()
+    service, storage = _batch_service(tmp_path, sources, BatchTransport())
+    original_record_success = storage.record_success
+
+    def failing_commit(
+        source: Source,
+        fetch_run_id: int,
+        http_status: int | None,
+        batch: ValidatedBatch,
+        response_etag: str | None,
+        response_last_modified: str | None,
+        next_run_at: datetime,
+        observed_at: datetime,
+    ) -> IngestionSummary:
+        if source.id == "batch-one":
+            raise sqlite3.OperationalError("disk I/O error")
+        return original_record_success(
+            source,
+            fetch_run_id,
+            http_status,
+            batch,
+            response_etag,
+            response_last_modified,
+            next_run_at,
+            observed_at,
+        )
+
+    storage.record_success = failing_commit  # type: ignore[method-assign]
+    result = service.fetch_sources(sources)
+
+    runs = {run.source_id: run for run in storage.latest_fetch_runs(enabled_only=False)}
+    storage.close()
+
+    assert [summary.source_id for summary in result.summaries] == [
+        "batch-two",
+        "batch-three",
+    ]
+    assert [failure.source_id for failure in result.failures] == ["batch-one"]
+    assert [failure.error_type for failure in result.failures] == ["OperationalError"]
+    assert runs["batch-one"].status == "failed"
+    assert runs["batch-one"].error_type == "OperationalError"
 
 
 class NotModifiedTransport:

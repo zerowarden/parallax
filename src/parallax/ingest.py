@@ -81,16 +81,17 @@ class IngestionService:
         source: Source,
         since: datetime | None = None,
     ) -> IngestionSummary:
+        """Own one source's run from creation through success or final failure."""
         run_id = self._storage.start_fetch_run(source.id)
-        state = self._storage.get_stream_state(source.id)
-        now = datetime.now(UTC)
+        attempted_at = datetime.now(UTC)
 
         try:
+            state = self._storage.get_stream_state(source.id)
             prepared = self._prepare(source, state, since)
-        except Exception as exc:
-            self._record_preparation_failure(source, run_id, now, exc)
+            return self._commit_prepared(source, run_id, attempted_at, prepared)
+        except BaseException as error:
+            self._record_run_failure(source, run_id, attempted_at, error)
             raise
-        return self._commit_prepared(source, run_id, now, prepared)
 
     def fetch_sources(
         self,
@@ -110,6 +111,7 @@ class IngestionService:
         failures: dict[int, IngestionFailure] = {}
         pending: dict[Future[_PreparedOutcome], tuple[int, Source, int, datetime]] = {}
         uncommitted: tuple[int, Source, int, datetime] | None = None
+        starting: tuple[int, Source, int, datetime] | None = None
         source_iter = iter(enumerate(sources))
 
         with ThreadPoolExecutor(
@@ -118,23 +120,25 @@ class IngestionService:
         ) as executor:
 
             def submit_next() -> bool:
+                nonlocal starting
                 try:
                     index, source = next(source_iter)
                 except StopIteration:
                     return False
                 run_id = self._storage.start_fetch_run(source.id)
+                starting = (index, source, run_id, datetime.now(UTC))
                 state = self._storage.get_stream_state(source.id)
-                attempted_at = datetime.now(UTC)
                 future = executor.submit(self._prepare, source, state, since)
-                pending[future] = (index, source, run_id, attempted_at)
+                pending[future] = starting
+                starting = None
                 return True
 
-            for _ in range(
-                min(self._ingestion_config.max_concurrent_sources, len(sources))
-            ):
-                submit_next()
-
             try:
+                for _ in range(
+                    min(self._ingestion_config.max_concurrent_sources, len(sources))
+                ):
+                    submit_next()
+
                 while pending:
                     done, _ = wait(pending, return_when=FIRST_COMPLETED)
                     for future in done:
@@ -142,31 +146,31 @@ class IngestionService:
                         index, source, run_id, attempted_at = uncommitted
                         try:
                             prepared = future.result()
+                            summary = self._commit_prepared(
+                                source, run_id, attempted_at, prepared
+                            )
                         except Exception as error:
-                            self._record_preparation_failure(
+                            self._record_run_failure(
                                 source, run_id, attempted_at, error
                             )
                             failures[index] = IngestionFailure(
                                 source.id, type(error).__name__, _error_message(error)
                             )
                         else:
-                            completed[index] = self._commit_prepared(
-                                source, run_id, attempted_at, prepared
-                            )
+                            completed[index] = summary
                         uncommitted = None
                         submit_next()
-            except BaseException:
-                interruption = InterruptedError("Batch ingestion interrupted")
+            except BaseException as error:
                 for future in pending:
                     future.cancel()
                 executor.shutdown(wait=True, cancel_futures=True)
-                interrupted_runs = tuple(pending.values())
+                unfinished = tuple(pending.values())
                 if uncommitted is not None:
-                    interrupted_runs += (uncommitted,)
-                for _, source, run_id, attempted_at in interrupted_runs:
-                    self._record_preparation_failure(
-                        source, run_id, attempted_at, interruption
-                    )
+                    unfinished += (uncommitted,)
+                if starting is not None:
+                    unfinished += (starting,)
+                for _, source, run_id, attempted_at in unfinished:
+                    self._record_run_failure(source, run_id, attempted_at, error)
                 raise
 
         summaries = tuple(completed[index] for index in sorted(completed))
@@ -312,34 +316,53 @@ class IngestionService:
             return self._validate(source, parsed)
         return ValidatedBatch((), 0, parsed.warnings)
 
-    def _record_preparation_failure(
+    def _record_run_failure(
         self,
         source: Source,
         run_id: int,
         attempted_at: datetime,
-        error: Exception,
+        error: BaseException,
     ) -> None:
-        state = self._storage.get_stream_state(source.id)
-        delay = min(
-            self._ingestion_config.retry_max_seconds,
-            self._ingestion_config.retry_base_seconds
-            * (2 ** min(20, state.consecutive_failures)),
+        """Finalize one failed run without replacing the caller's error.
+
+        Recording is best effort: when storage cannot take the failure (for
+        example because the database is unavailable), the original error still
+        propagates to the caller. Non-``Exception`` interruptions keep their
+        category as ``InterruptedError`` because they carry no failure detail.
+        """
+        failure: Exception = (
+            error
+            if isinstance(error, Exception)
+            else InterruptedError("Ingestion interrupted")
         )
-        next_run_at = attempted_at + timedelta(seconds=delay)
-        status = (
-            error.response.status_code
-            if isinstance(error, httpx.HTTPStatusError)
-            else None
-        )
-        message = _error_message(error)
+        message = _error_message(failure)
+        next_run_at = attempted_at
         try:
+            state = self._storage.get_stream_state(source.id)
+            delay = min(
+                self._ingestion_config.retry_max_seconds,
+                self._ingestion_config.retry_base_seconds
+                * (2 ** min(20, state.consecutive_failures)),
+            )
+            next_run_at = attempted_at + timedelta(seconds=delay)
+            status = (
+                failure.response.status_code
+                if isinstance(failure, httpx.HTTPStatusError)
+                else None
+            )
             self._storage.record_failure(
-                source.id, run_id, error, next_run_at, status, message
+                source.id, run_id, failure, next_run_at, status, message
             )
         except Exception as storage_error:
-            self._log_failure(source.id, run_id, storage_error, next_run_at)
-            raise
-        self._log_failure(source.id, run_id, error, next_run_at, message)
+            LOGGER.error(
+                "operation=fetch_failure_record_failed source_id=%s "
+                "fetch_run_id=%s error_type=%s error=%s",
+                source.id,
+                run_id,
+                type(storage_error).__name__,
+                _error_message(storage_error),
+            )
+        self._log_failure(source.id, run_id, failure, next_run_at, message)
 
     @staticmethod
     def _log_failure(

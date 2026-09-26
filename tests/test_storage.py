@@ -731,6 +731,76 @@ def test_failed_commit_rolls_back_and_preserves_prior_snapshot(tmp_path: Path) -
     assert state.last_success_at is not None
 
 
+def test_transaction_rolls_back_when_interrupted(tmp_path: Path) -> None:
+    storage = Storage(tmp_path / "parallax.db")
+    storage.initialize()
+
+    with pytest.raises(KeyboardInterrupt), storage.transaction():
+        storage._connection.execute("""
+            INSERT INTO consumer_checkpoints(consumer_name, last_seq, updated_at)
+            VALUES ('interrupted', 1, '2026-01-01T00:00:00+00:00')
+            """)
+        raise KeyboardInterrupt
+
+    assert not storage._connection.in_transaction
+    assert storage.get_consumer_checkpoint("interrupted") == 0
+    storage.set_consumer_checkpoint("after-interrupt", 1)
+    assert storage.get_consumer_checkpoint("after-interrupt") == 1
+    storage.close()
+
+
+class _CommitFailingConnection:
+    def __init__(self) -> None:
+        self.in_transaction = False
+        self.statements: list[str] = []
+
+    def execute(self, sql: str) -> None:
+        self.statements.append(sql)
+        if sql == "BEGIN IMMEDIATE":
+            self.in_transaction = True
+        elif sql == "COMMIT":
+            raise sqlite3.OperationalError("disk I/O error")
+        elif sql == "ROLLBACK":
+            self.in_transaction = False
+
+    def close(self) -> None:
+        pass
+
+
+def test_transaction_rolls_back_when_commit_fails(tmp_path: Path) -> None:
+    storage = Storage(tmp_path / "parallax.db")
+    storage._connection.close()
+    connection = _CommitFailingConnection()
+    storage._connection = connection  # type: ignore[assignment]
+
+    expected = pytest.raises(sqlite3.OperationalError, match="disk I/O error")
+    with expected, storage.transaction():
+        pass
+
+    assert connection.statements == ["BEGIN IMMEDIATE", "COMMIT", "ROLLBACK"]
+    assert not connection.in_transaction
+    storage.close()
+
+
+def test_transaction_discards_writes_when_deferred_commit_fails(
+    tmp_path: Path,
+) -> None:
+    storage = Storage(tmp_path / "parallax.db")
+    storage.initialize()
+
+    expected = pytest.raises(sqlite3.IntegrityError, match="FOREIGN KEY")
+    with expected, storage.transaction():
+        storage._connection.execute("PRAGMA defer_foreign_keys = ON")
+        storage._connection.execute("""
+            INSERT INTO change_log(event_type, source_id, item_id, created_at)
+            VALUES ('item_created', 'missing-source', 1, '2026-01-01T00:00:00+00:00')
+            """)
+
+    assert not storage._connection.in_transaction
+    assert storage.changes_after(0) == []
+    storage.close()
+
+
 def test_canonical_items_collapse_across_provider_channels(tmp_path: Path) -> None:
     storage = Storage(tmp_path / "parallax.db")
     storage.initialize()

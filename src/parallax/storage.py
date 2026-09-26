@@ -1027,11 +1027,22 @@ class Storage:
         self._connection.execute("BEGIN IMMEDIATE")
         try:
             yield
-        except Exception:
-            self._connection.execute("ROLLBACK")
-            raise
-        else:
             self._connection.execute("COMMIT")
+        except BaseException:
+            self._rollback_active_transaction()
+            raise
+
+    def _rollback_active_transaction(self) -> None:
+        """Roll back a still-open transaction without masking the original error."""
+        if not self._connection.in_transaction:
+            return
+        try:
+            self._connection.execute("ROLLBACK")
+        except Exception:
+            LOGGER.exception(
+                "operation=transaction_rollback_failed path=%s",
+                self.database_path,
+            )
 
     def _record_stream_success(
         self,
