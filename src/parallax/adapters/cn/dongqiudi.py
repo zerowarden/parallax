@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from typing import Any
+
 from parallax.adapters.common.http import json_request
 from parallax.adapters.common.parsing import (
     decode_json_object,
     extracted_batch,
     parse_china_timestamp,
+    ranked_candidates,
     require_list,
     scalar_text,
     text,
@@ -38,29 +41,30 @@ class DongqiudiNewsAdapter:
             "Dongqiudi response does not contain an articles list",
         )
 
-        max_items = source.max_items
-        candidates: list[HeadlineCandidate] = []
-        for position, article in enumerate(articles[:max_items], start=1):
-            if not isinstance(article, dict):
-                continue
-            article_id = scalar_text(article.get("id"))
-            url = text(article.get("share")) or text(article.get("url"))
-            if not url and article_id:
-                url = ARTICLE_URL_TEMPLATE.format(article_id=article_id)
-            raw_published = text(article.get("created_at"))
-            metrics: dict[str, JsonValue] = {}
-            category = text(article.get("category"))
-            if category:
-                metrics["category"] = category
-            candidates.append(
-                HeadlineCandidate(
-                    title=text(article.get("title")),
-                    url=url,
-                    external_id=article_id or None,
-                    published_at=parse_china_timestamp(raw_published),
-                    raw_published_at=raw_published or None,
-                    position=position,
-                    metrics=metrics,
-                )
-            )
+        candidates = ranked_candidates(
+            articles,
+            max_items=source.max_items,
+            build=_news_candidate,
+        )
         return extracted_batch(candidates, entries=articles, label="dongqiudi")
+
+
+def _news_candidate(entry: dict[str, Any], position: int) -> HeadlineCandidate:
+    article_id = scalar_text(entry.get("id"))
+    url = text(entry.get("share")) or text(entry.get("url"))
+    if not url and article_id:
+        url = ARTICLE_URL_TEMPLATE.format(article_id=article_id)
+    raw_published = text(entry.get("created_at"))
+    metrics: dict[str, JsonValue] = {}
+    category = text(entry.get("category"))
+    if category:
+        metrics["category"] = category
+    return HeadlineCandidate(
+        title=text(entry.get("title")),
+        url=url,
+        external_id=article_id or None,
+        published_at=parse_china_timestamp(raw_published),
+        raw_published_at=raw_published or None,
+        position=position,
+        metrics=metrics,
+    )

@@ -3,13 +3,13 @@ from __future__ import annotations
 import hashlib
 import time
 from collections.abc import Mapping
-from datetime import datetime
 from typing import Any
 from urllib.parse import urlencode
 
 from parallax.adapters.common.http import json_request
 from parallax.adapters.common.parsing import (
     decode_json_object,
+    ranked_candidates,
     require_list,
     require_mapping,
     scalar_text,
@@ -22,7 +22,6 @@ from parallax.domain import (
     ParsedBatch,
     RequestSpec,
 )
-from parallax.numbers import optional_finite_number
 from parallax.parsing import parse_timestamp
 
 DETAIL_URL_TEMPLATE = "https://www.cls.cn/detail/{article_id}"
@@ -131,35 +130,21 @@ def _candidates(
     *,
     skip_ads: bool = False,
 ) -> list[HeadlineCandidate]:
-    max_items = source.max_items
-    candidates: list[HeadlineCandidate] = []
-    for entry in entries:
-        if not isinstance(entry, dict):
-            continue
+    def build(entry: dict[str, Any], position: int) -> HeadlineCandidate | None:
         if skip_ads and entry.get("is_ad"):
-            continue
+            return None
         article_id = scalar_text(entry.get("id"))
         title = text(entry.get("title")) or text(entry.get("brief"))
         if not article_id or not title:
-            continue
+            return None
         raw_published = scalar_text(entry.get("ctime"))
-        candidates.append(
-            HeadlineCandidate(
-                title=title,
-                url=DETAIL_URL_TEMPLATE.format(article_id=article_id),
-                external_id=article_id,
-                published_at=_published_at(entry.get("ctime")),
-                raw_published_at=raw_published or None,
-                position=len(candidates) + 1,
-            )
+        return HeadlineCandidate(
+            title=title,
+            url=DETAIL_URL_TEMPLATE.format(article_id=article_id),
+            external_id=article_id,
+            published_at=parse_timestamp(entry.get("ctime")),
+            raw_published_at=raw_published or None,
+            position=position,
         )
-        if len(candidates) >= max_items:
-            break
-    return candidates
 
-
-def _published_at(value: object) -> datetime | None:
-    numeric = optional_finite_number(value)
-    if numeric is None:
-        return None
-    return parse_timestamp(numeric * 1000)
+    return ranked_candidates(entries, max_items=source.max_items, build=build)

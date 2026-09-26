@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from typing import Any
+
 from parallax.adapters.common.http import json_request
 from parallax.adapters.common.parsing import (
     decode_json_object,
     extracted_batch,
+    ranked_candidates,
     require_list,
     scalar_text,
     text,
@@ -37,27 +40,24 @@ class ToutiaoHotAdapter:
             "Toutiao response does not contain a data list",
         )
 
-        max_items = source.max_items
-        candidates: list[HeadlineCandidate] = []
-        for position, item in enumerate(items[:max_items], start=1):
-            if not isinstance(item, dict):
-                continue
-            cluster_id = scalar_text(item.get("ClusterIdStr"))
-            metrics: dict[str, JsonValue] = {}
-            hot_value = scalar_text(item.get("HotValue"))
-            if hot_value:
-                metrics["hot_value"] = hot_value
-            candidates.append(
-                HeadlineCandidate(
-                    title=text(item.get("Title")),
-                    url=(
-                        TRENDING_URL_TEMPLATE.format(cluster_id=cluster_id)
-                        if cluster_id
-                        else ""
-                    ),
-                    external_id=cluster_id or None,
-                    position=position,
-                    metrics=metrics,
-                )
-            )
+        candidates = ranked_candidates(
+            items,
+            max_items=source.max_items,
+            build=_hot_candidate,
+        )
         return extracted_batch(candidates, entries=items, label="toutiao")
+
+
+def _hot_candidate(entry: dict[str, Any], position: int) -> HeadlineCandidate:
+    cluster_id = scalar_text(entry.get("ClusterIdStr"))
+    metrics: dict[str, JsonValue] = {}
+    hot_value = scalar_text(entry.get("HotValue"))
+    if hot_value:
+        metrics["hot_value"] = hot_value
+    return HeadlineCandidate(
+        title=text(entry.get("Title")),
+        url=TRENDING_URL_TEMPLATE.format(cluster_id=cluster_id) if cluster_id else "",
+        external_id=cluster_id or None,
+        position=position,
+        metrics=metrics,
+    )

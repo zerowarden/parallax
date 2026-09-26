@@ -8,6 +8,7 @@ from parallax.adapters.common.http import json_request
 from parallax.adapters.common.parsing import (
     decode_json_object,
     extracted_batch,
+    ranked_candidates,
     require_list,
     require_mapping,
     scalar_text,
@@ -117,31 +118,27 @@ def _batch(
     source: Source,
     extract: _Extractor,
 ) -> ParsedBatch:
-    max_items = source.max_items
     excluded = 0
-    candidates: list[HeadlineCandidate] = []
-    for entry in entries:
-        if not isinstance(entry, dict):
-            continue
+
+    def build(entry: dict[str, Any], position: int) -> HeadlineCandidate | None:
+        nonlocal excluded
         fields = extract(entry)
         if fields is None:
             excluded += 1
-            continue
+            return None
         if not fields.title or not fields.url:
-            continue
-        candidates.append(
-            HeadlineCandidate(
-                title=fields.title,
-                url=fields.url,
-                external_id=fields.external_id,
-                published_at=parse_timestamp(fields.raw_published_at),
-                raw_published_at=fields.raw_published_at or None,
-                position=len(candidates) + 1,
-                metrics=fields.metrics,
-            )
+            return None
+        return HeadlineCandidate(
+            title=fields.title,
+            url=fields.url,
+            external_id=fields.external_id,
+            published_at=parse_timestamp(fields.raw_published_at),
+            raw_published_at=fields.raw_published_at or None,
+            position=position,
+            metrics=fields.metrics,
         )
-        if len(candidates) >= max_items:
-            break
+
+    candidates = ranked_candidates(entries, max_items=source.max_items, build=build)
     return extracted_batch(
         candidates, entries=entries, label="WallstreetCN", excluded_count=excluded
     )

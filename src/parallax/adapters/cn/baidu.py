@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 import re
+from typing import Any
 
 from parallax.adapters.common.http import html_request
 from parallax.adapters.common.parsing import (
     decode_html,
     extracted_batch,
+    ranked_candidates,
     require_list,
     require_mapping,
     text,
@@ -59,26 +61,21 @@ class BaiduHotSearchAdapter:
             "Baidu card does not contain a content list",
         )
 
-        max_items = source.max_items
         excluded = 0
-        candidates: list[HeadlineCandidate] = []
-        for entry in entries:
-            if not isinstance(entry, dict):
-                continue
+
+        def build(entry: dict[str, Any], position: int) -> HeadlineCandidate | None:
+            nonlocal excluded
             if entry.get("isTop"):
                 excluded += 1
-                continue
-            url = text(entry.get("rawUrl"))
-            candidates.append(
-                HeadlineCandidate(
-                    title=text(entry.get("word")),
-                    url=url,
-                    external_id=None,
-                    position=len(candidates) + 1,
-                )
+                return None
+            return HeadlineCandidate(
+                title=text(entry.get("word")),
+                url=text(entry.get("rawUrl")),
+                external_id=None,
+                position=position,
             )
-            if len(candidates) >= max_items:
-                break
+
+        candidates = ranked_candidates(entries, max_items=source.max_items, build=build)
         return extracted_batch(
             candidates, entries=entries, label="baidu", excluded_count=excluded
         )

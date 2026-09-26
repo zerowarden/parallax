@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Sequence
+from collections.abc import Callable, Iterable, Sequence
 from datetime import UTC, datetime, timedelta, timezone
 from typing import Any
 
 from parallax.domain import HeadlineCandidate, ParsedBatch
 from parallax.numbers import optional_finite_number
+from parallax.parsing import parse_iso_timestamp
 
 CHINA_STANDARD_TIME = timezone(timedelta(hours=8))
 
@@ -98,15 +99,7 @@ def parse_china_timestamp(value: str) -> datetime | None:
     Chinese publishers commonly emit local wall time without an offset;
     already-offset values are respected.
     """
-    if not value:
-        return None
-    try:
-        parsed = datetime.fromisoformat(value)
-    except ValueError:
-        return None
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=CHINA_STANDARD_TIME)
-    return parsed.astimezone(UTC)
+    return parse_iso_timestamp(value, naive_tz=CHINA_STANDARD_TIME)
 
 
 def parse_relative_time(value: str, *, now: datetime | None = None) -> datetime | None:
@@ -136,6 +129,31 @@ def parse_relative_time(value: str, *, now: datetime | None = None) -> datetime 
             microsecond=0,
         ).astimezone(UTC)
     return None
+
+
+def ranked_candidates(
+    entries: Iterable[object],
+    *,
+    max_items: int,
+    build: Callable[[dict[str, Any], int], HeadlineCandidate | None],
+) -> list[HeadlineCandidate]:
+    """Collect ranked candidates from a JSON entry list under one policy.
+
+    Non-object entries are skipped. ``build`` receives each object and its
+    contiguous 1-based position and returns ``None`` to skip that entry without
+    consuming a position. At most ``max_items`` candidates are returned.
+    """
+    candidates: list[HeadlineCandidate] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        candidate = build(entry, len(candidates) + 1)
+        if candidate is None:
+            continue
+        candidates.append(candidate)
+        if len(candidates) >= max_items:
+            break
+    return candidates
 
 
 def extracted_batch(

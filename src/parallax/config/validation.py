@@ -4,7 +4,8 @@ import re
 
 LANGUAGE_TAG_PATTERN = re.compile(r"^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$")
 MARKET_PATTERN = re.compile(r"^[A-Z]{2,8}$")
-TOPIC_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+SLUG_PATTERN = r"^[a-z0-9][a-z0-9-]*$"
+_TOPIC_ID_PATTERN = re.compile(SLUG_PATTERN)
 
 
 def validate_language_tag(value: str) -> str:
@@ -25,6 +26,6 @@ def validate_market(value: str) -> str:
 
 def validate_topic_id(value: str) -> str:
     """Validate a lowercase topic slug declared inside a source entry."""
-    if not TOPIC_ID_PATTERN.match(value):
+    if not _TOPIC_ID_PATTERN.match(value):
         raise ValueError(f"topic {value!r} must be a lowercase slug")
     return value

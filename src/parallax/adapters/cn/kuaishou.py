@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 import re
+from typing import Any
 from urllib.parse import quote
 
 from parallax.adapters.common.http import html_request
 from parallax.adapters.common.parsing import (
     decode_html,
+    ranked_candidates,
     require_list,
     require_mapping,
     scalar_text,
@@ -76,29 +78,23 @@ class KuaishouHotAdapter:
             "Kuaishou hot-rank node does not contain items",
         )
 
-        max_items = source.max_items
-        candidates: list[HeadlineCandidate] = []
-        for item in items:
-            if not isinstance(item, dict):
-                continue
+        def build(item: dict[str, Any], position: int) -> HeadlineCandidate | None:
             item_id = scalar_text(item.get("id"))
             node = client.get(item_id)
             if not isinstance(node, dict) or node.get("tagType") == PINNED_TAG:
-                continue
+                return None
             word = item_id.removeprefix(ITEM_PREFIX)
             title = text(node.get("name"))
             if not word or not title:
-                continue
-            candidates.append(
-                HeadlineCandidate(
-                    title=title,
-                    url=f"{BASE_URL}/search/video?searchKey={quote(title, safe='')}",
-                    external_id=word,
-                    position=len(candidates) + 1,
-                )
+                return None
+            return HeadlineCandidate(
+                title=title,
+                url=f"{BASE_URL}/search/video?searchKey={quote(title, safe='')}",
+                external_id=word,
+                position=position,
             )
-            if len(candidates) >= max_items:
-                break
+
+        candidates = ranked_candidates(items, max_items=source.max_items, build=build)
         if not candidates:
             raise ValueError("Kuaishou hot rank does not contain any items")
         return ParsedBatch(candidates=tuple(candidates))

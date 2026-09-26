@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from typing import Any
+
 from parallax.adapters.common.http import json_request
 from parallax.adapters.common.parsing import (
     decode_json_object,
     extracted_batch,
+    ranked_candidates,
     require_list,
     scalar_text,
     text,
@@ -47,19 +50,17 @@ class NowcoderHotAdapter:
             "Nowcoder response does not contain a result list",
         )
 
-        max_items = source.max_items
         excluded = 0
-        candidates: list[HeadlineCandidate] = []
-        for entry in entries:
-            if not isinstance(entry, dict):
-                continue
+
+        def build(entry: dict[str, Any], position: int) -> HeadlineCandidate | None:
+            nonlocal excluded
             entry_type = entry.get("type")
             if entry_type is not None and entry_type not in {
                 FEED_DETAIL_TYPE,
                 DISCUSS_TYPE,
             }:
                 excluded += 1
-                continue
+                return None
             entry_id = scalar_text(entry.get("id"))
             uuid = text(entry.get("uuid"))
             if entry_type == FEED_DETAIL_TYPE and uuid:
@@ -69,22 +70,20 @@ class NowcoderHotAdapter:
                 external_id = entry_id
                 url = DISCUSS_URL_TEMPLATE.format(entry_id=entry_id)
             else:
-                continue
+                return None
             metrics: dict[str, JsonValue] = {}
             hot_value = optional_finite_number(entry.get("hotValueFromDolphin"))
             if hot_value is not None:
                 metrics["hot_value"] = hot_value
-            candidates.append(
-                HeadlineCandidate(
-                    title=text(entry.get("title")),
-                    url=url,
-                    external_id=external_id,
-                    position=len(candidates) + 1,
-                    metrics=metrics,
-                )
+            return HeadlineCandidate(
+                title=text(entry.get("title")),
+                url=url,
+                external_id=external_id,
+                position=position,
+                metrics=metrics,
             )
-            if len(candidates) >= max_items:
-                break
+
+        candidates = ranked_candidates(entries, max_items=source.max_items, build=build)
         return extracted_batch(
             candidates, entries=entries, label="nowcoder", excluded_count=excluded
         )

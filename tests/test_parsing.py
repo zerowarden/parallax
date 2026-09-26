@@ -1,15 +1,17 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
 
 from parallax.adapters.common.parsing import (
     parse_china_timestamp,
     parse_relative_time,
+    ranked_candidates,
     scalar_text,
     text,
 )
+from parallax.domain import HeadlineCandidate
 from parallax.parsing import parse_since, parse_timestamp
 
 NOW = datetime(2026, 9, 17, 12, 0, tzinfo=UTC)
@@ -38,6 +40,31 @@ def test_scalar_conversion_rejects_structures_booleans_and_nonfinite_numbers(
 ) -> None:
     with pytest.raises(ValueError, match="Expected upstream string or number"):
         scalar_text(value)
+
+
+def test_ranked_candidates_skips_non_objects_and_preserves_contiguous_rank() -> None:
+    entries: list[object] = [
+        {"id": "a"},
+        "not-an-object",
+        {"id": "skip"},
+        {"id": "b"},
+        {"id": "c"},
+    ]
+
+    def build(entry: dict[str, object], position: int) -> HeadlineCandidate | None:
+        entry_id = entry.get("id")
+        if entry_id == "skip":
+            return None
+        return HeadlineCandidate(
+            title=str(entry_id),
+            url=f"https://example.test/{entry_id}",
+            position=position,
+        )
+
+    candidates = ranked_candidates(entries, max_items=2, build=build)
+
+    assert [candidate.title for candidate in candidates] == ["a", "b"]
+    assert [candidate.position for candidate in candidates] == [1, 2]
 
 
 def test_parse_relative_time_handles_common_labels():
@@ -87,5 +114,19 @@ def test_generic_timestamp_parser_rejects_timezone_ambiguous_values() -> None:
     assert parse_timestamp("2026-09-17T14:15:46") is None
     assert parse_timestamp(datetime(2026, 9, 17, 14, 15, 46)) is None
     assert parse_timestamp("2026-09-17T14:15:46+08:00") == datetime(
+        2026, 9, 17, 6, 15, 46, tzinfo=UTC
+    )
+
+
+def test_generic_timestamp_parser_anchors_naive_values_at_declared_zone() -> None:
+    beijing = timezone(timedelta(hours=8))
+
+    assert parse_timestamp("2026-09-17 14:15:46", naive_tz=beijing) == datetime(
+        2026, 9, 17, 6, 15, 46, tzinfo=UTC
+    )
+    assert parse_timestamp(
+        datetime(2026, 9, 17, 14, 15, 46), naive_tz=beijing
+    ) == datetime(2026, 9, 17, 6, 15, 46, tzinfo=UTC)
+    assert parse_timestamp("2026-09-17T14:15:46+08:00", naive_tz=beijing) == datetime(
         2026, 9, 17, 6, 15, 46, tzinfo=UTC
     )

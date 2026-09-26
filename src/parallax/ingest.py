@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import sqlite3
 from collections.abc import Sequence
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
@@ -36,6 +35,7 @@ from parallax.domain import (
     ValidatedBatch,
 )
 from parallax.identity import identity_keys
+from parallax.storage import ERROR_MESSAGE_LIMIT, StorageError
 from parallax.transport import Transport
 from parallax.validation import BatchValidator
 
@@ -43,7 +43,6 @@ if TYPE_CHECKING:
     from parallax.storage import Storage
 
 LOGGER = logging.getLogger(__name__)
-ERROR_MESSAGE_LIMIT = 2000
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,7 +152,7 @@ class IngestionService:
                             summary = self._commit_prepared(
                                 source, run_id, attempted_at, prepared
                             )
-                        except sqlite3.Error:
+                        except StorageError:
                             # A storage failure aborts the batch; it is not an
                             # invalid source payload that another fetch can fix.
                             raise

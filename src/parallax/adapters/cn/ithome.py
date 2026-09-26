@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from typing import Any
+
 from parallax.adapters.common.http import json_request
 from parallax.adapters.common.parsing import (
     decode_json_object,
     extracted_batch,
     parse_china_timestamp,
+    ranked_candidates,
     require_list,
     scalar_text,
     text,
@@ -39,30 +42,26 @@ class IthomeNewsAdapter:
             "ITHome response does not contain a newslist",
         )
 
-        max_items = source.max_items
         excluded = 0
-        candidates: list[HeadlineCandidate] = []
-        for entry in entries:
-            if not isinstance(entry, dict):
-                continue
+
+        def build(entry: dict[str, Any], position: int) -> HeadlineCandidate | None:
+            nonlocal excluded
             path = text(entry.get("url"))
             if AD_URL_MARKER in path:
                 excluded += 1
-                continue
+                return None
             news_id = scalar_text(entry.get("newsid"))
             raw_published = text(entry.get("postdate"))
-            candidates.append(
-                HeadlineCandidate(
-                    title=text(entry.get("title")),
-                    url=_absolute_url(path),
-                    external_id=news_id or None,
-                    published_at=parse_china_timestamp(raw_published),
-                    raw_published_at=raw_published or None,
-                    position=len(candidates) + 1,
-                )
+            return HeadlineCandidate(
+                title=text(entry.get("title")),
+                url=_absolute_url(path),
+                external_id=news_id or None,
+                published_at=parse_china_timestamp(raw_published),
+                raw_published_at=raw_published or None,
+                position=position,
             )
-            if len(candidates) >= max_items:
-                break
+
+        candidates = ranked_candidates(entries, max_items=source.max_items, build=build)
         return extracted_batch(
             candidates, entries=entries, label="ithome", excluded_count=excluded
         )

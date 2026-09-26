@@ -197,13 +197,5 @@ def _points(value: str) -> int | None:
 
 
 def _parse_hn_timestamp(value: str) -> datetime | None:
-    parsed = parse_timestamp(value or None)
-    if parsed is not None or not value:
-        return parsed
-    try:
-        naive = datetime.fromisoformat(value)
-    except ValueError:
-        return None
-    if naive.tzinfo is not None:
-        return naive.astimezone(UTC)
-    return naive.replace(tzinfo=UTC)
+    # Hacker News exposes wall times that are authoritative as UTC.
+    return parse_timestamp(value or None, naive_tz=UTC)

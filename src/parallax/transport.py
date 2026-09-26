@@ -17,6 +17,7 @@ import httpx
 from parallax.config import AuthConfig, HttpConfig, Source
 from parallax.domain import HttpResponse, RequestSpec, StreamState
 from parallax.http_headers import compose_headers
+from parallax.urls import DEFAULT_PORTS, format_hostname
 
 LOGGER = logging.getLogger(__name__)
 MAX_REDIRECTS = 20
@@ -316,10 +317,7 @@ class HttpTransport(AbstractContextManager["HttpTransport"]):
 
 def _safe_url(url: str) -> str:
     split = urlsplit(url)
-    hostname = split.hostname or ""
-    if ":" in hostname:
-        hostname = f"[{hostname}]"
-    netloc = hostname
+    netloc = format_hostname(split.hostname or "")
     if split.port is not None:
         netloc = f"{netloc}:{split.port}"
     return split._replace(netloc=netloc, query="", fragment="").geturl()
@@ -363,7 +361,7 @@ def _same_safe_authority(current: httpx.URL, target: httpx.URL) -> bool:
 def _effective_port(url: httpx.URL) -> int | None:
     if url.port is not None:
         return url.port
-    return {"http": 80, "https": 443}.get(url.scheme)
+    return DEFAULT_PORTS.get(url.scheme)
 
 
 def _apply_cookie_policy(request: httpx.Request, declared_cookie: str) -> None:

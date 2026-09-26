@@ -7,6 +7,7 @@ from parallax.adapters.common.http import json_request
 from parallax.adapters.common.parsing import (
     decode_json_object,
     extracted_batch,
+    ranked_candidates,
     require_list,
     scalar_text,
     text,
@@ -53,35 +54,32 @@ class MktNewsFlashAdapter:
             "MKTNews response does not contain a data list",
         )
 
-        max_items = source.max_items
-        candidates: list[HeadlineCandidate] = []
-        for position, entry in enumerate(entries[:max_items], start=1):
-            if not isinstance(entry, dict):
-                continue
-            data = entry.get("data")
-            if not isinstance(data, dict):
-                continue
-            flash_id = scalar_text(entry.get("id"))
-            raw_published = text(entry.get("time"))
-            metrics: dict[str, JsonValue] = {}
-            if entry.get("important") == 1:
-                metrics["important"] = True
-            candidates.append(
-                HeadlineCandidate(
-                    title=_flash_title(data),
-                    url=(
-                        DETAIL_URL_TEMPLATE.format(flash_id=flash_id)
-                        if flash_id
-                        else ""
-                    ),
-                    external_id=flash_id or None,
-                    published_at=parse_timestamp(raw_published),
-                    raw_published_at=raw_published or None,
-                    position=position,
-                    metrics=metrics,
-                )
-            )
+        candidates = ranked_candidates(
+            entries,
+            max_items=source.max_items,
+            build=_flash_candidate,
+        )
         return extracted_batch(candidates, entries=entries, label="mktnews")
+
+
+def _flash_candidate(entry: dict[str, Any], position: int) -> HeadlineCandidate | None:
+    data = entry.get("data")
+    if not isinstance(data, dict):
+        return None
+    flash_id = scalar_text(entry.get("id"))
+    raw_published = text(entry.get("time"))
+    metrics: dict[str, JsonValue] = {}
+    if entry.get("important") == 1:
+        metrics["important"] = True
+    return HeadlineCandidate(
+        title=_flash_title(data),
+        url=DETAIL_URL_TEMPLATE.format(flash_id=flash_id) if flash_id else "",
+        external_id=flash_id or None,
+        published_at=parse_timestamp(raw_published),
+        raw_published_at=raw_published or None,
+        position=position,
+        metrics=metrics,
+    )
 
 
 def _flash_title(data: dict[str, Any]) -> str:

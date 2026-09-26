@@ -7,6 +7,7 @@ from parallax.adapters.common.http import JSON_ACCEPT
 from parallax.adapters.common.parsing import (
     decode_json_object,
     extracted_batch,
+    ranked_candidates,
     require_list,
     scalar_text,
     text,
@@ -57,22 +58,24 @@ class V2exShareAdapter:
             raw_entries.extend(items)
             entries.extend(item for item in items if isinstance(item, dict))
         entries.sort(key=_sort_key, reverse=True)
-
-        max_items = source.max_items
-        candidates: list[HeadlineCandidate] = []
-        for position, entry in enumerate(entries[:max_items], start=1):
-            raw_published = text(entry.get("date_published"))
-            candidates.append(
-                HeadlineCandidate(
-                    title=text(entry.get("title")),
-                    url=text(entry.get("url")),
-                    external_id=scalar_text(entry.get("id")) or None,
-                    published_at=parse_timestamp(raw_published),
-                    raw_published_at=raw_published or None,
-                    position=position,
-                )
-            )
+        candidates = ranked_candidates(
+            entries,
+            max_items=source.max_items,
+            build=_share_candidate,
+        )
         return extracted_batch(candidates, entries=raw_entries, label="v2ex")
+
+
+def _share_candidate(entry: dict[str, Any], position: int) -> HeadlineCandidate:
+    raw_published = text(entry.get("date_published"))
+    return HeadlineCandidate(
+        title=text(entry.get("title")),
+        url=text(entry.get("url")),
+        external_id=scalar_text(entry.get("id")) or None,
+        published_at=parse_timestamp(raw_published),
+        raw_published_at=raw_published or None,
+        position=position,
+    )
 
 
 def _sort_key(entry: dict[str, Any]) -> datetime:

@@ -8,6 +8,7 @@ from parallax.adapters.common.parsing import (
     decode_json_object,
     extracted_batch,
     parse_china_timestamp,
+    ranked_candidates,
     require_list,
     scalar_text,
     text,
@@ -59,31 +60,31 @@ class CankaoxiaoxiNewsAdapter:
             raw_entries.extend(items)
             entries.extend(item for item in items if isinstance(item, dict))
         entries.sort(key=_sort_key, reverse=True)
-
-        max_items = source.max_items
-        candidates: list[HeadlineCandidate] = []
-        for entry in entries:
-            data = entry.get("data")
-            if not isinstance(data, dict):
-                continue
-            title = text(data.get("title"))
-            url = text(data.get("url"))
-            if not title or not url:
-                continue
-            raw_published = text(data.get("publishTime"))
-            candidates.append(
-                HeadlineCandidate(
-                    title=title,
-                    url=url,
-                    external_id=scalar_text(data.get("id")) or None,
-                    published_at=parse_china_timestamp(raw_published),
-                    raw_published_at=raw_published or None,
-                    position=len(candidates) + 1,
-                )
-            )
-            if len(candidates) >= max_items:
-                break
+        candidates = ranked_candidates(
+            entries,
+            max_items=source.max_items,
+            build=_news_candidate,
+        )
         return extracted_batch(candidates, entries=raw_entries, label="cankaoxiaoxi")
+
+
+def _news_candidate(entry: dict[str, Any], position: int) -> HeadlineCandidate | None:
+    data = entry.get("data")
+    if not isinstance(data, dict):
+        return None
+    title = text(data.get("title"))
+    url = text(data.get("url"))
+    if not title or not url:
+        return None
+    raw_published = text(data.get("publishTime"))
+    return HeadlineCandidate(
+        title=title,
+        url=url,
+        external_id=scalar_text(data.get("id")) or None,
+        published_at=parse_china_timestamp(raw_published),
+        raw_published_at=raw_published or None,
+        position=position,
+    )
 
 
 def _sort_key(entry: dict[str, Any]) -> datetime:

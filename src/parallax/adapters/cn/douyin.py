@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import Any
 
 from parallax.adapters.base import AdapterStep, CompleteStep, ContinueStep
 from parallax.adapters.common.http import cookie_header
 from parallax.adapters.common.options import fixed_endpoint_options
 from parallax.adapters.common.parsing import (
     decode_json_object,
+    ranked_candidates,
     require_list,
     scalar_text,
     text,
@@ -86,33 +88,32 @@ def _parse_hot(source: Source, response: HttpResponse) -> ParsedBatch:
         "Douyin response does not contain a word_list",
     )
 
-    max_items = source.max_items
-    candidates: list[HeadlineCandidate] = []
-    for entry in entries:
-        if not isinstance(entry, dict):
-            continue
-        sentence_id = scalar_text(entry.get("sentence_id"))
-        title = text(entry.get("word"))
-        if not sentence_id or not title:
-            continue
-        metrics: dict[str, JsonValue] = {}
-        hot_value = optional_finite_number(entry.get("hot_value"))
-        if hot_value is not None:
-            metrics["hot_value"] = hot_value
-        event_time = optional_finite_number(entry.get("event_time"))
-        if event_time is not None:
-            metrics["event_time"] = event_time
-        candidates.append(
-            HeadlineCandidate(
-                title=title,
-                url=DETAIL_URL_TEMPLATE.format(sentence_id=sentence_id),
-                external_id=sentence_id,
-                position=len(candidates) + 1,
-                metrics=metrics,
-            )
-        )
-        if len(candidates) >= max_items:
-            break
+    candidates = ranked_candidates(
+        entries,
+        max_items=source.max_items,
+        build=_hot_candidate,
+    )
     if not candidates:
         raise ValueError("Douyin hot list contains no entries")
     return ParsedBatch(candidates=tuple(candidates))
+
+
+def _hot_candidate(entry: dict[str, Any], position: int) -> HeadlineCandidate | None:
+    sentence_id = scalar_text(entry.get("sentence_id"))
+    title = text(entry.get("word"))
+    if not sentence_id or not title:
+        return None
+    metrics: dict[str, JsonValue] = {}
+    hot_value = optional_finite_number(entry.get("hot_value"))
+    if hot_value is not None:
+        metrics["hot_value"] = hot_value
+    event_time = optional_finite_number(entry.get("event_time"))
+    if event_time is not None:
+        metrics["event_time"] = event_time
+    return HeadlineCandidate(
+        title=title,
+        url=DETAIL_URL_TEMPLATE.format(sentence_id=sentence_id),
+        external_id=sentence_id,
+        position=position,
+        metrics=metrics,
+    )

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from typing import Any
+
 from parallax.adapters.common.http import json_request
 from parallax.adapters.common.parsing import (
     decode_json_object,
     extracted_batch,
+    ranked_candidates,
     require_list,
     scalar_text,
     text,
@@ -55,32 +58,31 @@ class SspaiHotAdapter:
             "SSPAI response does not contain a data list",
         )
 
-        max_items = source.max_items
-        candidates: list[HeadlineCandidate] = []
-        for entry in entries:
-            if not isinstance(entry, dict):
-                continue
-            article_id = scalar_text(entry.get("id"))
-            title = text(entry.get("title"))
-            if not article_id or not title:
-                continue
-            metrics: dict[str, JsonValue] = {}
-            for key in ("like_count", "comment_count"):
-                value = optional_integer(entry.get(key))
-                if value is not None:
-                    metrics[key] = value
-            raw_published = scalar_text(entry.get("released_time"))
-            candidates.append(
-                HeadlineCandidate(
-                    title=title,
-                    url=DETAIL_URL_TEMPLATE.format(article_id=article_id),
-                    external_id=article_id,
-                    published_at=parse_timestamp(raw_published),
-                    raw_published_at=raw_published or None,
-                    position=len(candidates) + 1,
-                    metrics=metrics,
-                )
-            )
-            if len(candidates) >= max_items:
-                break
+        candidates = ranked_candidates(
+            entries,
+            max_items=source.max_items,
+            build=_hot_candidate,
+        )
         return extracted_batch(candidates, entries=entries, label="sspai")
+
+
+def _hot_candidate(entry: dict[str, Any], position: int) -> HeadlineCandidate | None:
+    article_id = scalar_text(entry.get("id"))
+    title = text(entry.get("title"))
+    if not article_id or not title:
+        return None
+    metrics: dict[str, JsonValue] = {}
+    for key in ("like_count", "comment_count"):
+        value = optional_integer(entry.get(key))
+        if value is not None:
+            metrics[key] = value
+    raw_published = scalar_text(entry.get("released_time"))
+    return HeadlineCandidate(
+        title=title,
+        url=DETAIL_URL_TEMPLATE.format(article_id=article_id),
+        external_id=article_id,
+        published_at=parse_timestamp(raw_published),
+        raw_published_at=raw_published or None,
+        position=position,
+        metrics=metrics,
+    )

@@ -17,6 +17,7 @@ from pydantic import (
 )
 
 from parallax.config.validation import (
+    SLUG_PATTERN,
     validate_language_tag,
     validate_market,
     validate_topic_id,
@@ -33,7 +34,6 @@ from parallax.domain import (
 )
 from parallax.urls import parse_http_url
 
-SOURCE_ID_PATTERN = r"^[a-z0-9][a-z0-9-]*$"
 type OptionValue = str | int | float | bool
 
 
@@ -195,8 +195,8 @@ class Endpoint(ConfigModel):
 
 
 class SourceDefinition(ConfigModel):
-    id: str = Field(min_length=1, pattern=SOURCE_ID_PATTERN)
-    provider_id: str = Field(min_length=1, pattern=SOURCE_ID_PATTERN)
+    id: str = Field(min_length=1, pattern=SLUG_PATTERN)
+    provider_id: str = Field(min_length=1, pattern=SLUG_PATTERN)
     provider_name: str = Field(min_length=1)
     provider_kind: ProviderKind
 

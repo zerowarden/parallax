@@ -199,8 +199,13 @@ def _headline_feed_row(
 
 
 def _identity_keys(row: HeadlineRow, index: int) -> tuple[str, str]:
-    """Return the URL and title keys that decide heuristic cluster membership."""
-    url_key = f"url:{row.canonical_url}" if row.canonical_url else ""
+    """Return the URL and title keys that decide heuristic cluster membership.
+
+    The ``canonical:`` prefix deliberately differs from the persistent
+    ``url:`` identity namespace in ``parallax.identity``: clustering matches
+    tracking-stripped canonical URLs, which are broader than exact identity.
+    """
+    url_key = f"canonical:{row.canonical_url}" if row.canonical_url else ""
     entity = row.entity_kind or ""
     title_key = (
         f"title:{row.item_kind}:{entity}:"

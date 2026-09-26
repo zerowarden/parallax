@@ -6,6 +6,7 @@ from parallax.adapters.common.http import json_request
 from parallax.adapters.common.parsing import (
     decode_json_object,
     extracted_batch,
+    ranked_candidates,
     require_list,
     scalar_text,
     text,
@@ -38,29 +39,30 @@ class ZhihuHotAdapter:
             "Zhihu response does not contain a data list",
         )
 
-        max_items = source.max_items
-        candidates: list[HeadlineCandidate] = []
-        for position, entry in enumerate(entries[:max_items], start=1):
-            if not isinstance(entry, dict):
-                continue
-            target = entry.get("target")
-            if not isinstance(target, dict):
-                continue
-            metrics: dict[str, JsonValue] = {}
-            heat = _area_text(target, "metrics_area", "text")
-            if heat:
-                metrics["heat"] = heat
-            external_id = scalar_text(entry.get("card_id")).removeprefix("Q_")
-            candidates.append(
-                HeadlineCandidate(
-                    title=_area_text(target, "title_area", "text"),
-                    url=_area_text(target, "link", "url"),
-                    external_id=external_id or None,
-                    position=position,
-                    metrics=metrics,
-                )
-            )
+        candidates = ranked_candidates(
+            entries,
+            max_items=source.max_items,
+            build=_hot_candidate,
+        )
         return extracted_batch(candidates, entries=entries, label="zhihu")
+
+
+def _hot_candidate(entry: dict[str, Any], position: int) -> HeadlineCandidate | None:
+    target = entry.get("target")
+    if not isinstance(target, dict):
+        return None
+    metrics: dict[str, JsonValue] = {}
+    heat = _area_text(target, "metrics_area", "text")
+    if heat:
+        metrics["heat"] = heat
+    external_id = scalar_text(entry.get("card_id")).removeprefix("Q_")
+    return HeadlineCandidate(
+        title=_area_text(target, "title_area", "text"),
+        url=_area_text(target, "link", "url"),
+        external_id=external_id or None,
+        position=position,
+        metrics=metrics,
+    )
 
 
 def _area_text(target: dict[str, Any], area: str, key: str) -> str:

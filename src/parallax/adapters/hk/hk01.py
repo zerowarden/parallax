@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from typing import Any
+
 from parallax.adapters.common.http import json_request
 from parallax.adapters.common.parsing import (
     decode_json_object,
     extracted_batch,
+    ranked_candidates,
     scalar_text,
     text,
 )
@@ -31,19 +34,16 @@ class Hk01LatestAdapter:
         if not isinstance(items, list):
             raise ValueError("HK01 response does not contain an items list")
 
-        max_items = source.max_items
         excluded = 0
-        candidates: list[HeadlineCandidate] = []
-        for item in items:
-            if not isinstance(item, dict):
-                continue
+
+        def build(item: dict[str, Any], position: int) -> HeadlineCandidate | None:
+            nonlocal excluded
             if item.get("type") == 2:
                 excluded += 1
-                continue
+                return None
             data = item.get("data")
             if not isinstance(data, dict):
-                continue
-
+                return None
             article_id = scalar_text(data.get("articleId"))
             raw_published = data.get("publishTime")
             tags = data.get("tags")
@@ -61,27 +61,21 @@ class Hk01LatestAdapter:
                     for author in authors
                     if isinstance(author, dict) and author.get("publishName")
                 ]
-
-            candidates.append(
-                HeadlineCandidate(
-                    title=text(data.get("title")),
-                    url=(
-                        f"https://hk01.com/sns/article/{article_id}"
-                        if article_id
-                        else ""
-                    ),
-                    external_id=article_id or None,
-                    published_at=parse_timestamp(raw_published),
-                    raw_published_at=(
-                        None if raw_published is None else str(raw_published)
-                    ),
-                    position=len(candidates) + 1,
-                    metrics=metrics,
-                )
+            return HeadlineCandidate(
+                title=text(data.get("title")),
+                url=(
+                    f"https://hk01.com/sns/article/{article_id}" if article_id else ""
+                ),
+                external_id=article_id or None,
+                published_at=parse_timestamp(raw_published),
+                raw_published_at=(
+                    None if raw_published is None else str(raw_published)
+                ),
+                position=position,
+                metrics=metrics,
             )
-            if len(candidates) >= max_items:
-                break
 
+        candidates = ranked_candidates(items, max_items=source.max_items, build=build)
         return extracted_batch(
             candidates, entries=items, label="hk01", excluded_count=excluded
         )

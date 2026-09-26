@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import email.utils
 import re
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, tzinfo
 
 from parallax.numbers import optional_finite_number
 
@@ -28,17 +28,20 @@ def parse_since(value: str, *, now: datetime | None = None) -> datetime:
     return reference - timedelta(days=amount * _SINCE_DAYS[unit])
 
 
-def parse_timestamp(value: object) -> datetime | None:
+def parse_timestamp(
+    value: object, *, naive_tz: tzinfo | None = None
+) -> datetime | None:
     """Parse common upstream timestamp representations into UTC.
 
     Numeric values are interpreted as Unix seconds, or milliseconds when the
     magnitude clearly exceeds the seconds range. Strings may be numeric,
-    ISO-8601, or RFC-822/2822 timestamps.
+    ISO-8601, or RFC-822/2822 timestamps. A naive datetime is rejected unless
+    ``naive_tz`` names the wall-clock zone the upstream source implies.
     """
     if value is None:
         return None
     if isinstance(value, datetime):
-        return _as_utc(value)
+        return _as_utc(value, naive_tz=naive_tz)
     numeric = optional_finite_number(value)
     if numeric is not None:
         return _from_unix(numeric)
@@ -56,17 +59,26 @@ def parse_timestamp(value: object) -> datetime | None:
     if numeric is not None:
         return _from_unix(numeric)
 
-    normalized = text.replace("Z", "+00:00")
-    try:
-        return _as_utc(datetime.fromisoformat(normalized))
-    except ValueError:
-        pass
+    parsed_iso = parse_iso_timestamp(text, naive_tz=naive_tz)
+    if parsed_iso is not None:
+        return parsed_iso
 
     try:
         parsed = email.utils.parsedate_to_datetime(text)
     except (TypeError, ValueError, OverflowError):
         return None
-    return _as_utc(parsed)
+    return _as_utc(parsed, naive_tz=naive_tz)
+
+
+def parse_iso_timestamp(
+    value: str, *, naive_tz: tzinfo | None = None
+) -> datetime | None:
+    """Parse an ISO-8601 string into UTC, anchoring a naive value at naive_tz."""
+    try:
+        parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return _as_utc(parsed, naive_tz=naive_tz)
 
 
 def _from_unix(value: int | float) -> datetime | None:
@@ -78,7 +90,9 @@ def _from_unix(value: int | float) -> datetime | None:
         return None
 
 
-def _as_utc(value: datetime) -> datetime | None:
+def _as_utc(value: datetime, *, naive_tz: tzinfo | None = None) -> datetime | None:
     if value.tzinfo is None:
-        return None
+        if naive_tz is None:
+            return None
+        value = value.replace(tzinfo=naive_tz)
     return value.astimezone(UTC)

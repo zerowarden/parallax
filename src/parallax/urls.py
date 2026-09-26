@@ -4,6 +4,15 @@ from urllib.parse import SplitResult, urlsplit
 
 _ILLEGAL_CHARACTERS = frozenset(' "<>\\^`{|}')
 
+DEFAULT_PORTS: dict[str, int] = {"http": 80, "https": 443}
+
+
+def format_hostname(hostname: str) -> str:
+    """Render a parsed host for a URL authority, bracketing IPv6 literals."""
+    if ":" in hostname:
+        return f"[{hostname}]"
+    return hostname
+
 
 def parse_http_url(value: str) -> SplitResult:
     """Parse an absolute HTTP(S) URL without silently removing invalid input."""

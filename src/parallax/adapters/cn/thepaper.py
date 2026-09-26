@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from typing import Any
+
 from parallax.adapters.common.http import json_request
 from parallax.adapters.common.parsing import (
     decode_json_object,
     extracted_batch,
+    ranked_candidates,
     scalar_text,
     text,
 )
@@ -35,35 +38,27 @@ class ThePaperHotAdapter:
         if not isinstance(hot_news, list):
             raise ValueError("The Paper response does not contain data.hotNews")
 
-        max_items = source.max_items
-        candidates: list[HeadlineCandidate] = []
-        for position, item in enumerate(hot_news[:max_items], start=1):
-            if not isinstance(item, dict):
-                continue
-            cont_id = scalar_text(item.get("contId"))
-            title = text(item.get("name"))
-            raw_published = item.get("pubTimeLong")
-            metrics: dict[str, JsonValue] = {}
-            praise_times = optional_integer(item.get("praiseTimes"))
-            if praise_times is not None:
-                metrics["praise_times"] = praise_times
-
-            candidates.append(
-                HeadlineCandidate(
-                    title=title,
-                    url=(
-                        f"https://www.thepaper.cn/newsDetail_forward_{cont_id}"
-                        if cont_id
-                        else ""
-                    ),
-                    external_id=cont_id or None,
-                    published_at=parse_timestamp(raw_published),
-                    raw_published_at=(
-                        None if raw_published is None else str(raw_published)
-                    ),
-                    position=position,
-                    metrics=metrics,
-                )
-            )
-
+        candidates = ranked_candidates(
+            hot_news,
+            max_items=source.max_items,
+            build=_hot_candidate,
+        )
         return extracted_batch(candidates, entries=hot_news, label="thepaper")
+
+
+def _hot_candidate(entry: dict[str, Any], position: int) -> HeadlineCandidate:
+    cont_id = scalar_text(entry.get("contId"))
+    metrics: dict[str, JsonValue] = {}
+    praise_times = optional_integer(entry.get("praiseTimes"))
+    if praise_times is not None:
+        metrics["praise_times"] = praise_times
+    raw_published = entry.get("pubTimeLong")
+    return HeadlineCandidate(
+        title=text(entry.get("name")),
+        url=f"https://www.thepaper.cn/newsDetail_forward_{cont_id}" if cont_id else "",
+        external_id=cont_id or None,
+        published_at=parse_timestamp(raw_published),
+        raw_published_at=None if raw_published is None else str(raw_published),
+        position=position,
+        metrics=metrics,
+    )

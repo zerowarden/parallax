@@ -8,6 +8,7 @@ from parallax.adapters.common.http import json_request
 from parallax.adapters.common.parsing import (
     extracted_batch,
     parse_china_timestamp,
+    ranked_candidates,
     require_list,
     scalar_text,
     text,
@@ -44,24 +45,22 @@ class Jin10FlashAdapter:
     def parse(self, source: Source, response: HttpResponse) -> ParsedBatch:
         entries = _decode_flash_array(response.content)
 
-        max_items = source.max_items
         excluded = 0
-        candidates: list[HeadlineCandidate] = []
-        for entry in entries:
-            if not isinstance(entry, dict):
-                continue
+
+        def build(entry: dict[str, Any], position: int) -> HeadlineCandidate | None:
+            nonlocal excluded
             if AD_CHANNEL in (entry.get("channel") or []):
                 excluded += 1
-                continue
+                return None
             data = entry.get("data")
             if not isinstance(data, dict):
-                continue
+                return None
             flash_text = BOLD_TAG.sub(
                 "",
                 text(data.get("title")) or text(data.get("content")),
             )
             if not flash_text:
-                continue
+                return None
             headline = HEADLINE_PREFIX.match(flash_text)
             title = headline.group(1).strip() if headline else flash_text
             flash_id = scalar_text(entry.get("id"))
@@ -69,23 +68,17 @@ class Jin10FlashAdapter:
             metrics: dict[str, JsonValue] = {}
             if entry.get("important") == 1:
                 metrics["important"] = True
-            candidates.append(
-                HeadlineCandidate(
-                    title=title,
-                    url=(
-                        DETAIL_URL_TEMPLATE.format(flash_id=flash_id)
-                        if flash_id
-                        else ""
-                    ),
-                    external_id=flash_id or None,
-                    published_at=parse_china_timestamp(raw_published),
-                    raw_published_at=raw_published or None,
-                    position=len(candidates) + 1,
-                    metrics=metrics,
-                )
+            return HeadlineCandidate(
+                title=title,
+                url=DETAIL_URL_TEMPLATE.format(flash_id=flash_id) if flash_id else "",
+                external_id=flash_id or None,
+                published_at=parse_china_timestamp(raw_published),
+                raw_published_at=raw_published or None,
+                position=position,
+                metrics=metrics,
             )
-            if len(candidates) >= max_items:
-                break
+
+        candidates = ranked_candidates(entries, max_items=source.max_items, build=build)
         return extracted_batch(
             candidates, entries=entries, label="jin10", excluded_count=excluded
         )

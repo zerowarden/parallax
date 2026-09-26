@@ -5,12 +5,14 @@ import hashlib
 import random
 import string
 import time
+from typing import Any
 
 from selectolax.parser import HTMLParser
 
 from parallax.adapters.common.http import json_request
 from parallax.adapters.common.parsing import (
     decode_json_object,
+    ranked_candidates,
     require_list,
     scalar_text,
     text,
@@ -82,47 +84,44 @@ class CoolapkHotAdapter:
             "Coolapk response does not contain a data list",
         )
 
-        max_items = source.max_items
-        candidates: list[HeadlineCandidate] = []
-        for entry in entries:
-            if not isinstance(entry, dict):
-                continue
-            entry_id = scalar_text(entry.get("id"))
-            if not entry_id:
-                continue
-            title = text(entry.get("editor_title")) or _message_title(
-                entry.get("message")
-            )
-            if not title:
-                continue
-            metrics: dict[str, JsonValue] = {}
-            target_row = entry.get("targetRow")
-            if isinstance(target_row, dict):
-                heat = text(target_row.get("subTitle"))
-                if heat:
-                    metrics["heat"] = heat
-            raw_published = scalar_text(entry.get("dateline"))
-            article_path = text(entry.get("url"))
-            candidates.append(
-                HeadlineCandidate(
-                    title=title,
-                    url=(
-                        f"{ARTICLE_URL_PREFIX}{article_path}"
-                        if article_path.startswith("/")
-                        else article_path
-                    ),
-                    external_id=entry_id,
-                    published_at=parse_timestamp(raw_published),
-                    raw_published_at=raw_published or None,
-                    position=len(candidates) + 1,
-                    metrics=metrics,
-                )
-            )
-            if len(candidates) >= max_items:
-                break
+        candidates = ranked_candidates(
+            entries,
+            max_items=source.max_items,
+            build=_hot_candidate,
+        )
         if not candidates:
             raise ValueError("Coolapk response contains no feed items")
         return ParsedBatch(candidates=tuple(candidates))
+
+
+def _hot_candidate(entry: dict[str, Any], position: int) -> HeadlineCandidate | None:
+    entry_id = scalar_text(entry.get("id"))
+    if not entry_id:
+        return None
+    title = text(entry.get("editor_title")) or _message_title(entry.get("message"))
+    if not title:
+        return None
+    metrics: dict[str, JsonValue] = {}
+    target_row = entry.get("targetRow")
+    if isinstance(target_row, dict):
+        heat = text(target_row.get("subTitle"))
+        if heat:
+            metrics["heat"] = heat
+    raw_published = scalar_text(entry.get("dateline"))
+    article_path = text(entry.get("url"))
+    return HeadlineCandidate(
+        title=title,
+        url=(
+            f"{ARTICLE_URL_PREFIX}{article_path}"
+            if article_path.startswith("/")
+            else article_path
+        ),
+        external_id=entry_id,
+        published_at=parse_timestamp(raw_published),
+        raw_published_at=raw_published or None,
+        position=position,
+        metrics=metrics,
+    )
 
 
 def _message_title(value: object) -> str:

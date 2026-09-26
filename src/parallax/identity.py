@@ -4,6 +4,11 @@ from parallax.domain import HeadlineCandidate
 from parallax.normalization import normalize_url_for_identity
 
 
+def url_identity_key(url: str) -> str:
+    """Return the canonical ``url:`` identity key for one URL."""
+    return f"url:{normalize_url_for_identity(url)}"
+
+
 def identity_keys(
     candidate: HeadlineCandidate,
     *,
@@ -15,7 +20,7 @@ def identity_keys(
     URL.  Keeping the URL key alongside the preferred key lets persistence
     reconcile an observation when an upstream ID appears or disappears.
     """
-    url_key = f"url:{normalize_url_for_identity(candidate.url)}"
+    url_key = url_identity_key(candidate.url)
     external_id = candidate.external_id.strip() if candidate.external_id else ""
     if external_id:
         return f"external:{provider_id}:{external_id}", url_key

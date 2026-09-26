@@ -21,6 +21,8 @@ from parallax.domain import (
 )
 from parallax.storage import catalog, changes, foundation, queries, writer
 from parallax.storage.foundation import SCHEMA_VERSION as SCHEMA_VERSION
+from parallax.storage.foundation import StorageError as StorageError
+from parallax.storage.writer import ERROR_MESSAGE_LIMIT as ERROR_MESSAGE_LIMIT
 
 
 class Storage:

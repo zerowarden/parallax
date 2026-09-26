@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from typing import Any
+
 from parallax.adapters.common.http import json_request
 from parallax.adapters.common.parsing import (
     decode_json_object,
     extracted_batch,
+    ranked_candidates,
     require_list,
     scalar_text,
     text,
@@ -37,29 +40,26 @@ class DoubanHotMoviesAdapter:
             "Douban response does not contain an items list",
         )
 
-        max_items = source.max_items
-        candidates: list[HeadlineCandidate] = []
-        for position, item in enumerate(items[:max_items], start=1):
-            if not isinstance(item, dict):
-                continue
-            movie_id = scalar_text(item.get("id"))
-            metrics: dict[str, JsonValue] = {}
-            rating = item.get("rating")
-            if isinstance(rating, dict):
-                value = optional_finite_number(rating.get("value"))
-                if value is not None:
-                    metrics["rating"] = value
-            candidates.append(
-                HeadlineCandidate(
-                    title=text(item.get("title")),
-                    url=(
-                        SUBJECT_URL_TEMPLATE.format(movie_id=movie_id)
-                        if movie_id
-                        else ""
-                    ),
-                    external_id=movie_id or None,
-                    position=position,
-                    metrics=metrics,
-                )
-            )
+        candidates = ranked_candidates(
+            items,
+            max_items=source.max_items,
+            build=_hot_candidate,
+        )
         return extracted_batch(candidates, entries=items, label="douban")
+
+
+def _hot_candidate(entry: dict[str, Any], position: int) -> HeadlineCandidate:
+    movie_id = scalar_text(entry.get("id"))
+    metrics: dict[str, JsonValue] = {}
+    rating = entry.get("rating")
+    if isinstance(rating, dict):
+        value = optional_finite_number(rating.get("value"))
+        if value is not None:
+            metrics["rating"] = value
+    return HeadlineCandidate(
+        title=text(entry.get("title")),
+        url=SUBJECT_URL_TEMPLATE.format(movie_id=movie_id) if movie_id else "",
+        external_id=movie_id or None,
+        position=position,
+        metrics=metrics,
+    )

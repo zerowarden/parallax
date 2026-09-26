@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from typing import Any
+
 from parallax.adapters.common.http import json_request
 from parallax.adapters.common.parsing import (
     decode_json_object,
     extracted_batch,
+    ranked_candidates,
     require_list,
     scalar_text,
     text,
@@ -73,25 +76,26 @@ class IqiyiHotRanklistAdapter:
             "iQiyi video block does not contain a data list",
         )
 
-        max_items = source.max_items
-        candidates: list[HeadlineCandidate] = []
-        for entry in entries[:max_items]:
-            if not isinstance(entry, dict):
-                continue
-            metrics: dict[str, JsonValue] = {}
-            show_date = text(entry.get("showDate"))
-            if show_date:
-                metrics["show_date"] = show_date
-            tag = text(entry.get("tag"))
-            if tag:
-                metrics["tag"] = tag
-            candidates.append(
-                HeadlineCandidate(
-                    title=text(entry.get("title")),
-                    url=text(entry.get("page_url")),
-                    external_id=scalar_text(entry.get("entity_id")) or None,
-                    position=len(candidates) + 1,
-                    metrics=metrics,
-                )
-            )
+        candidates = ranked_candidates(
+            entries,
+            max_items=source.max_items,
+            build=_hot_candidate,
+        )
         return extracted_batch(candidates, entries=entries, label="iqiyi")
+
+
+def _hot_candidate(entry: dict[str, Any], position: int) -> HeadlineCandidate:
+    metrics: dict[str, JsonValue] = {}
+    show_date = text(entry.get("showDate"))
+    if show_date:
+        metrics["show_date"] = show_date
+    tag = text(entry.get("tag"))
+    if tag:
+        metrics["tag"] = tag
+    return HeadlineCandidate(
+        title=text(entry.get("title")),
+        url=text(entry.get("page_url")),
+        external_id=scalar_text(entry.get("entity_id")) or None,
+        position=position,
+        metrics=metrics,
+    )

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import Any
 
 from parallax.adapters.base import AdapterStep, CompleteStep, ContinueStep
 from parallax.adapters.common.http import cookie_header
 from parallax.adapters.common.options import fixed_endpoint_options
 from parallax.adapters.common.parsing import (
     decode_json_object,
+    ranked_candidates,
     require_list,
     require_mapping,
     scalar_text,
@@ -75,33 +77,34 @@ def _parse_hot(source: Source, response: HttpResponse) -> ParsedBatch:
         "Xueqiu response does not contain an items list",
     )
 
-    max_items = source.max_items
-    candidates: list[HeadlineCandidate] = []
-    for entry in entries:
-        if not isinstance(entry, dict) or entry.get("ad"):
-            continue
-        code = scalar_text(entry.get("code"))
-        title = text(entry.get("name"))
-        if not code or not title:
-            continue
-        metrics: dict[str, JsonValue] = {}
-        percent = optional_finite_number(entry.get("percent"))
-        if percent is not None:
-            metrics["percent"] = percent
-        exchange = text(entry.get("exchange"))
-        if exchange:
-            metrics["exchange"] = exchange
-        candidates.append(
-            HeadlineCandidate(
-                title=title,
-                url=STOCK_URL_TEMPLATE.format(code=code),
-                external_id=code,
-                position=len(candidates) + 1,
-                metrics=metrics,
-            )
-        )
-        if len(candidates) >= max_items:
-            break
+    candidates = ranked_candidates(
+        entries,
+        max_items=source.max_items,
+        build=_hot_candidate,
+    )
     if not candidates:
         raise ValueError("Xueqiu hot-stock list contains no entries")
     return ParsedBatch(candidates=tuple(candidates))
+
+
+def _hot_candidate(entry: dict[str, Any], position: int) -> HeadlineCandidate | None:
+    if entry.get("ad"):
+        return None
+    code = scalar_text(entry.get("code"))
+    title = text(entry.get("name"))
+    if not code or not title:
+        return None
+    metrics: dict[str, JsonValue] = {}
+    percent = optional_finite_number(entry.get("percent"))
+    if percent is not None:
+        metrics["percent"] = percent
+    exchange = text(entry.get("exchange"))
+    if exchange:
+        metrics["exchange"] = exchange
+    return HeadlineCandidate(
+        title=title,
+        url=STOCK_URL_TEMPLATE.format(code=code),
+        external_id=code,
+        position=position,
+        metrics=metrics,
+    )

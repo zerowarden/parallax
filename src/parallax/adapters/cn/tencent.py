@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from typing import Any
+
 from parallax.adapters.common.http import json_request
 from parallax.adapters.common.parsing import (
     decode_json_object,
     extracted_batch,
     parse_china_timestamp,
+    ranked_candidates,
     require_list,
     require_mapping,
     scalar_text,
@@ -48,22 +51,23 @@ class TencentHotAdapter:
             "Tencent response does not contain an articleList",
         )
 
-        max_items = source.max_items
-        candidates: list[HeadlineCandidate] = []
-        for position, item in enumerate(articles[:max_items], start=1):
-            if not isinstance(item, dict):
-                continue
-            link_info = item.get("link_info")
-            link_url = text(link_info.get("url")) if isinstance(link_info, dict) else ""
-            raw_published = scalar_text(item.get("publish_time"))
-            candidates.append(
-                HeadlineCandidate(
-                    title=text(item.get("title")),
-                    url=link_url,
-                    external_id=scalar_text(item.get("id")) or None,
-                    published_at=parse_china_timestamp(raw_published),
-                    raw_published_at=raw_published or None,
-                    position=position,
-                )
-            )
+        candidates = ranked_candidates(
+            articles,
+            max_items=source.max_items,
+            build=_hot_candidate,
+        )
         return extracted_batch(candidates, entries=articles, label="tencent")
+
+
+def _hot_candidate(entry: dict[str, Any], position: int) -> HeadlineCandidate:
+    link_info = entry.get("link_info")
+    link_url = text(link_info.get("url")) if isinstance(link_info, dict) else ""
+    raw_published = scalar_text(entry.get("publish_time"))
+    return HeadlineCandidate(
+        title=text(entry.get("title")),
+        url=link_url,
+        external_id=scalar_text(entry.get("id")) or None,
+        published_at=parse_china_timestamp(raw_published),
+        raw_published_at=raw_published or None,
+        position=position,
+    )

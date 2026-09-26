@@ -11,6 +11,11 @@ from pathlib import Path
 LOGGER = logging.getLogger(__name__)
 SCHEMA_VERSION = 1
 
+# The persistence error contract exposed to non-storage layers. It is currently
+# SQLite's own error hierarchy; owning it here lets ingestion and presentation
+# depend on storage rather than on the concrete database module.
+StorageError = sqlite3.Error
+
 
 def open_connection(
     database_path: Path, *, read_only: bool = False

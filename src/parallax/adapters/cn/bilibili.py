@@ -9,6 +9,7 @@ from parallax.adapters.common.http import json_request
 from parallax.adapters.common.parsing import (
     decode_json_object,
     extracted_batch,
+    ranked_candidates,
     require_list,
     require_mapping,
     scalar_text,
@@ -49,29 +50,11 @@ class BilibiliHotSearchAdapter:
             "Bilibili response does not contain a list",
         )
 
-        max_items = source.max_items
-        candidates: list[HeadlineCandidate] = []
-        for position, item in enumerate(items[:max_items], start=1):
-            if not isinstance(item, dict):
-                continue
-            keyword = text(item.get("keyword"))
-            metrics: dict[str, JsonValue] = {}
-            heat_score = optional_finite_number(item.get("heat_score"))
-            if heat_score is not None:
-                metrics["heat_score"] = heat_score
-            candidates.append(
-                HeadlineCandidate(
-                    title=text(item.get("show_name")),
-                    url=(
-                        SEARCH_URL_TEMPLATE.format(keyword=quote(keyword, safe=""))
-                        if keyword
-                        else ""
-                    ),
-                    external_id=keyword or None,
-                    position=position,
-                    metrics=metrics,
-                )
-            )
+        candidates = ranked_candidates(
+            items,
+            max_items=source.max_items,
+            build=_hot_search_candidate,
+        )
         return extracted_batch(candidates, entries=items, label="Bilibili search")
 
 
@@ -95,14 +78,10 @@ class BilibiliHotVideoAdapter:
     def parse(self, source: Source, response: HttpResponse) -> ParsedBatch:
         items = _video_items(response.content)
 
-        max_items = source.max_items
-        candidates: list[HeadlineCandidate] = []
-        for item in items:
-            if not isinstance(item, dict):
-                continue
-            candidate = _video_candidate(item, position=len(candidates) + 1)
+        def build(item: dict[str, Any], position: int) -> HeadlineCandidate | None:
+            candidate = _video_candidate(item, position=position)
             if candidate is None:
-                continue
+                return None
             metrics: dict[str, JsonValue] = {}
             owner = item.get("owner")
             if isinstance(owner, dict):
@@ -116,16 +95,14 @@ class BilibiliHotVideoAdapter:
                     if value is not None:
                         metrics[key] = value
             raw_published = scalar_text(item.get("pubdate"))
-            candidates.append(
-                replace(
-                    candidate,
-                    published_at=parse_timestamp(raw_published or None),
-                    raw_published_at=raw_published or None,
-                    metrics=metrics,
-                )
+            return replace(
+                candidate,
+                published_at=parse_timestamp(raw_published or None),
+                raw_published_at=raw_published or None,
+                metrics=metrics,
             )
-            if len(candidates) >= max_items:
-                break
+
+        candidates = ranked_candidates(items, max_items=source.max_items, build=build)
         if not candidates:
             raise ValueError("Bilibili popular response contains no videos")
         return ParsedBatch(candidates=tuple(candidates))
@@ -150,14 +127,10 @@ class BilibiliRankingAdapter:
     def parse(self, source: Source, response: HttpResponse) -> ParsedBatch:
         items = _video_items(response.content)
 
-        max_items = source.max_items
-        candidates: list[HeadlineCandidate] = []
-        for item in items:
-            if not isinstance(item, dict):
-                continue
-            candidate = _video_candidate(item, position=len(candidates) + 1)
+        def build(item: dict[str, Any], position: int) -> HeadlineCandidate | None:
+            candidate = _video_candidate(item, position=position)
             if candidate is None:
-                continue
+                return None
             metrics: dict[str, JsonValue] = {}
             author = text(item.get("author"))
             if author:
@@ -166,9 +139,9 @@ class BilibiliRankingAdapter:
                 value = optional_integer(item.get(key))
                 if value is not None:
                     metrics[key] = value
-            candidates.append(replace(candidate, metrics=metrics))
-            if len(candidates) >= max_items:
-                break
+            return replace(candidate, metrics=metrics)
+
+        candidates = ranked_candidates(items, max_items=source.max_items, build=build)
         if not candidates:
             raise ValueError("Bilibili ranking response contains no videos")
         return ParsedBatch(candidates=tuple(candidates))
@@ -201,4 +174,23 @@ def _video_candidate(
         url=VIDEO_URL_TEMPLATE.format(bvid=bvid),
         external_id=bvid,
         position=position,
+    )
+
+
+def _hot_search_candidate(entry: dict[str, Any], position: int) -> HeadlineCandidate:
+    keyword = text(entry.get("keyword"))
+    metrics: dict[str, JsonValue] = {}
+    heat_score = optional_finite_number(entry.get("heat_score"))
+    if heat_score is not None:
+        metrics["heat_score"] = heat_score
+    return HeadlineCandidate(
+        title=text(entry.get("show_name")),
+        url=(
+            SEARCH_URL_TEMPLATE.format(keyword=quote(keyword, safe=""))
+            if keyword
+            else ""
+        ),
+        external_id=keyword or None,
+        position=position,
+        metrics=metrics,
     )

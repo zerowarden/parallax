@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from typing import Any
+
 from parallax.adapters.common.http import json_request
 from parallax.adapters.common.parsing import (
     decode_json_object,
     extracted_batch,
+    ranked_candidates,
     require_list,
     scalar_text,
     text,
@@ -12,7 +15,6 @@ from parallax.config import Source
 from parallax.domain import (
     HeadlineCandidate,
     HttpResponse,
-    JsonValue,
     ParsedBatch,
     RequestSpec,
 )
@@ -36,27 +38,22 @@ class JuejinHotAdapter:
             "Juejin response does not contain a data list",
         )
 
-        max_items = source.max_items
-        candidates: list[HeadlineCandidate] = []
-        for position, entry in enumerate(entries[:max_items], start=1):
-            if not isinstance(entry, dict):
-                continue
-            content = entry.get("content")
-            if not isinstance(content, dict):
-                continue
-            content_id = scalar_text(content.get("content_id"))
-            metrics: dict[str, JsonValue] = {}
-            candidates.append(
-                HeadlineCandidate(
-                    title=text(content.get("title")),
-                    url=(
-                        POST_URL_TEMPLATE.format(content_id=content_id)
-                        if content_id
-                        else ""
-                    ),
-                    external_id=content_id or None,
-                    position=position,
-                    metrics=metrics,
-                )
-            )
+        candidates = ranked_candidates(
+            entries,
+            max_items=source.max_items,
+            build=_hot_candidate,
+        )
         return extracted_batch(candidates, entries=entries, label="juejin")
+
+
+def _hot_candidate(entry: dict[str, Any], position: int) -> HeadlineCandidate | None:
+    content = entry.get("content")
+    if not isinstance(content, dict):
+        return None
+    content_id = scalar_text(content.get("content_id"))
+    return HeadlineCandidate(
+        title=text(content.get("title")),
+        url=POST_URL_TEMPLATE.format(content_id=content_id) if content_id else "",
+        external_id=content_id or None,
+        position=position,
+    )

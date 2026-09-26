@@ -416,6 +416,36 @@ def test_zhihu_adapter_skips_entries_without_target():
     assert batch.candidates[0].external_id == "1"
 
 
+def test_zhihu_adapter_keeps_positions_contiguous_after_skips():
+    source = _source("zhihu_hot", "https://example.com/hot-list-web")
+    payload = json.dumps(
+        {
+            "data": [
+                {"card_id": "Q_0"},
+                {
+                    "card_id": "Q_1",
+                    "target": {
+                        "title_area": {"text": "第一条"},
+                        "link": {"url": "https://www.zhihu.com/question/1"},
+                    },
+                },
+                {
+                    "card_id": "Q_2",
+                    "target": {
+                        "title_area": {"text": "第二条"},
+                        "link": {"url": "https://www.zhihu.com/question/2"},
+                    },
+                },
+            ]
+        }
+    ).encode()
+
+    batch = ZhihuHotAdapter().parse(source, response_for(source, payload))
+
+    assert [candidate.external_id for candidate in batch.candidates] == ["1", "2"]
+    assert [candidate.position for candidate in batch.candidates] == [1, 2]
+
+
 def test_zhihu_adapter_rejects_missing_data_list():
     source = _source("zhihu_hot", "https://example.com/hot-list-web")
 
@@ -1832,6 +1862,31 @@ def test_cls_telegraph_adapter_parses_roll_list(fixtures_dir: Path):
     assert first.published_at == datetime.fromtimestamp(1789629612, tz=UTC)
     assert first.raw_published_at == "1789629612"
     assert [candidate.position for candidate in batch.candidates] == [1, 2, 3]
+
+
+def test_cls_telegraph_adapter_accepts_millisecond_ctime():
+    source = _source("cls_telegraph", "https://example.com/get_roll_list")
+    payload = json.dumps(
+        {
+            "data": {
+                "roll_data": [
+                    {
+                        "id": 7,
+                        "title": "毫秒时间戳",
+                        "brief": "",
+                        "ctime": 1789629612000,
+                        "is_ad": 0,
+                    }
+                ]
+            }
+        }
+    ).encode()
+
+    batch = ClsTelegraphAdapter().parse(source, response_for(source, payload))
+
+    assert batch.candidates[0].published_at == datetime.fromtimestamp(
+        1789629612, tz=UTC
+    )
 
 
 def test_cls_telegraph_adapter_skips_ads():

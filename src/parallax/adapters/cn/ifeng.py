@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from typing import Any
 from urllib.parse import urlsplit
 
 from parallax.adapters.common.http import html_request
@@ -9,6 +10,7 @@ from parallax.adapters.common.parsing import (
     decode_html,
     extracted_batch,
     parse_china_timestamp,
+    ranked_candidates,
     require_list,
     text,
 )
@@ -49,24 +51,23 @@ class IfengHotAdapter:
             "Ifeng allData does not contain a hotNews1 list",
         )
 
-        max_items = source.max_items
-        candidates: list[HeadlineCandidate] = []
-        for entry in entries:
-            if not isinstance(entry, dict):
-                continue
-            url = text(entry.get("url"))
-            path_match = ARTICLE_PATH.search(urlsplit(url).path)
-            raw_published = text(entry.get("newsTime"))
-            candidates.append(
-                HeadlineCandidate(
-                    title=text(entry.get("title")),
-                    url=url,
-                    external_id=path_match.group(1) if path_match else None,
-                    published_at=parse_china_timestamp(raw_published),
-                    raw_published_at=raw_published or None,
-                    position=len(candidates) + 1,
-                )
-            )
-            if len(candidates) >= max_items:
-                break
+        candidates = ranked_candidates(
+            entries,
+            max_items=source.max_items,
+            build=_hot_candidate,
+        )
         return extracted_batch(candidates, entries=entries, label="ifeng")
+
+
+def _hot_candidate(entry: dict[str, Any], position: int) -> HeadlineCandidate:
+    url = text(entry.get("url"))
+    path_match = ARTICLE_PATH.search(urlsplit(url).path)
+    raw_published = text(entry.get("newsTime"))
+    return HeadlineCandidate(
+        title=text(entry.get("title")),
+        url=url,
+        external_id=path_match.group(1) if path_match else None,
+        published_at=parse_china_timestamp(raw_published),
+        raw_published_at=raw_published or None,
+        position=position,
+    )

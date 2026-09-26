@@ -34,6 +34,10 @@ from parallax.storage.encoding import (
 
 LOGGER = logging.getLogger(__name__)
 
+# Upper bound on one persisted ``fetch_runs.error_message`` value. Storage owns
+# the column bound so logging and persistence do not drift apart.
+ERROR_MESSAGE_LIMIT = 2000
+
 
 @dataclass(frozen=True, slots=True)
 class _ResolvedObservation:
@@ -363,7 +367,9 @@ def record_failure(
 ) -> None:
     now = timestamp_now()
     error_type = type(error).__name__
-    message = error_message if error_message is not None else str(error)[:2000]
+    message = (error_message if error_message is not None else str(error))[
+        :ERROR_MESSAGE_LIMIT
+    ]
     with foundation.transaction(connection):
         cursor = connection.execute(
             """

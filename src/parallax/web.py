@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import sqlite3
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -14,6 +13,7 @@ from parallax.archive import BrowseHeadlineReader
 from parallax.config import Source
 from parallax.domain import BrowseView, is_browse_view
 from parallax.feed import browse_items
+from parallax.storage import StorageError
 from parallax.urls import parse_http_url
 
 LOGGER = logging.getLogger(__name__)
@@ -117,7 +117,7 @@ def create_app(
                 browse=browse,
                 now=current_time,
             )
-        except (sqlite3.Error, ValueError):
+        except (StorageError, ValueError):
             LOGGER.exception(
                 "operation=web_browse_failed view=%s days=%s page=%s",
                 view,

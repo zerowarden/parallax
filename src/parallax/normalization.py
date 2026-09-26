@@ -3,6 +3,8 @@ from __future__ import annotations
 import unicodedata
 from urllib.parse import unquote, urlsplit, urlunsplit
 
+from parallax.urls import DEFAULT_PORTS, format_hostname
+
 TRACKING_QUERY_KEYS = frozenset(
     {
         "utm_source",
@@ -20,14 +22,10 @@ def normalize_url_for_identity(url: str) -> str:
     """Conservatively normalize a URL without removing query semantics."""
     split = urlsplit(url.strip())
     scheme = split.scheme.lower()
-    hostname = (split.hostname or "").lower()
-    if ":" in hostname:
-        hostname = f"[{hostname}]"
+    hostname = format_hostname((split.hostname or "").lower())
     port = split.port
 
-    if port is not None and not (
-        (scheme == "http" and port == 80) or (scheme == "https" and port == 443)
-    ):
+    if port is not None and port != DEFAULT_PORTS.get(scheme):
         netloc = f"{hostname}:{port}"
     else:
         netloc = hostname

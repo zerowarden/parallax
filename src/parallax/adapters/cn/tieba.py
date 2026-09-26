@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import html
+from typing import Any
 
 from parallax.adapters.common.http import json_request
 from parallax.adapters.common.parsing import (
     decode_json_object,
     extracted_batch,
+    ranked_candidates,
     require_list,
     require_mapping,
     scalar_text,
@@ -50,32 +52,31 @@ class TiebaHotAdapter:
             "Tieba response does not contain a topic_list",
         )
 
-        max_items = source.max_items
-        candidates: list[HeadlineCandidate] = []
-        for entry in entries:
-            if not isinstance(entry, dict):
-                continue
-            external_id = scalar_text(entry.get("topic_id"))
-            title = text(entry.get("topic_name"))
-            url = html.unescape(text(entry.get("topic_url")))
-            if not external_id or not title or not url:
-                continue
-            metrics: dict[str, JsonValue] = {}
-            discuss_count = optional_integer(entry.get("discuss_num"))
-            if discuss_count is not None:
-                metrics["discuss_count"] = discuss_count
-            raw_published = scalar_text(entry.get("create_time"))
-            candidates.append(
-                HeadlineCandidate(
-                    title=title,
-                    url=url,
-                    external_id=external_id,
-                    published_at=parse_timestamp(raw_published),
-                    raw_published_at=raw_published or None,
-                    position=len(candidates) + 1,
-                    metrics=metrics,
-                )
-            )
-            if len(candidates) >= max_items:
-                break
+        candidates = ranked_candidates(
+            entries,
+            max_items=source.max_items,
+            build=_hot_candidate,
+        )
         return extracted_batch(candidates, entries=entries, label="tieba")
+
+
+def _hot_candidate(entry: dict[str, Any], position: int) -> HeadlineCandidate | None:
+    external_id = scalar_text(entry.get("topic_id"))
+    title = text(entry.get("topic_name"))
+    url = html.unescape(text(entry.get("topic_url")))
+    if not external_id or not title or not url:
+        return None
+    metrics: dict[str, JsonValue] = {}
+    discuss_count = optional_integer(entry.get("discuss_num"))
+    if discuss_count is not None:
+        metrics["discuss_count"] = discuss_count
+    raw_published = scalar_text(entry.get("create_time"))
+    return HeadlineCandidate(
+        title=title,
+        url=url,
+        external_id=external_id,
+        published_at=parse_timestamp(raw_published),
+        raw_published_at=raw_published or None,
+        position=position,
+        metrics=metrics,
+    )
